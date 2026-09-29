@@ -31,15 +31,15 @@ baseDomain: tarassov.me
 
 mi-fitness-api:
   image:
-    tag: "1.7.1"
+    tag: "1.7.2"
 
 cpp-frontend:
   image:
-    tag: "1.7.1"
+    tag: "1.7.2"
 
 mi-fitness-api-worker:
   image:
-    tag: "1.7.1"
+    tag: "1.7.2"
   app:
     baseUrl: https://app.stage.tarassov.me
   worker:

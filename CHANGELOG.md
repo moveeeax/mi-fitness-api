@@ -6,6 +6,11 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.7.2] — 2026-09-30
+
+### Fixed
+- Каждый запрос к облаку Xiaomi несёт User-Agent: без него облако отвечает конвертом с passToken:null, и логин падает на отсутствии поля
+
 ## [1.7.1] — 2026-09-29
 
 ### Fixed
