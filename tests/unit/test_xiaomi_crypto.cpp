@@ -36,7 +36,12 @@ nlohmann::json load_vectors() {
 }  // namespace
 
 TEST(XiaomiCrypto, Rc4MatchesUpstreamVectors) {
-    const auto vectors = load_vectors()["rc4"];
+    // Фикстура держится в именованной переменной, а не в выражении вида
+    // load_vectors()["rc4"]: там operator[] вернул бы ссылку внутрь временного
+    // объекта, который умирает в конце выражения, и цикл пошёл бы по
+    // освобождённой памяти. Это ловится только санитайзером.
+    const nlohmann::json fixture = load_vectors();
+    const auto& vectors = fixture["rc4"];
     ASSERT_EQ(vectors.size(), 12u) << "фикстура не та, что ожидает тест";
     for (const auto& v : vectors) {
         const auto key = Xiaomi::Crypto::b64_decode(v["key_b64"].get<std::string>());
@@ -52,7 +57,8 @@ TEST(XiaomiCrypto, Rc4IsItsOwnInverse) {
 }
 
 TEST(XiaomiCrypto, SignedNonceMatchesUpstreamVectors) {
-    for (const auto& v : load_vectors()["signed_nonce"]) {
+    const nlohmann::json fixture = load_vectors();
+    for (const auto& v : fixture["signed_nonce"]) {
         const auto nonce = Xiaomi::Crypto::b64_decode(v["nonce_b64"].get<std::string>());
         EXPECT_EQ(
             Xiaomi::Crypto::b64_encode(Xiaomi::Crypto::signed_nonce(v["ssecurity_b64"].get<std::string>(), nonce)),
@@ -61,7 +67,8 @@ TEST(XiaomiCrypto, SignedNonceMatchesUpstreamVectors) {
 }
 
 TEST(XiaomiCrypto, SignatureMatchesUpstreamVectors) {
-    for (const auto& v : load_vectors()["signature"]) {
+    const nlohmann::json fixture = load_vectors();
+    for (const auto& v : fixture["signature"]) {
         const auto sn = Xiaomi::Crypto::b64_decode(v["signed_nonce_b64"].get<std::string>());
         std::string hash_storage;
         std::optional<std::string_view> rc4_hash;
