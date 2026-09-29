@@ -1,0 +1,13 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: mi-fitness
+  namespace: db
+spec:
+  cluster:
+    name: postgresql
+  name: mi_fitness
+  owner: mi-fitness
+  ensure: present
+  # Удаление ресурса не должно уносить данные здоровья вместе с собой.
+  databaseReclaimPolicy: retain
