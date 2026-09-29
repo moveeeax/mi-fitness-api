@@ -78,10 +78,14 @@ TEST_F(XiaomiProbeTest, ReturnsMaskedAccountAndCount) {
     ASSERT_NE(resp, nullptr);
     ASSERT_EQ(resp->statusCode(), k200OK);
     const auto body = json::parse(std::string(resp->body()));
-    EXPECT_EQ(body["data"]["account"], "******90");
-    EXPECT_EQ(body["data"]["region"], "cn");
-    EXPECT_EQ(body["data"]["key"], "steps");
-    EXPECT_EQ(body["data"]["records"], 2);
+    // contains до чтения: на const JSON доступ по отсутствующему ключу это
+    // assert внутри nlohmann, который валит весь тестовый бинарь.
+    ASSERT_TRUE(body.contains("data")) << body.dump();
+    const auto& data = body["data"];
+    EXPECT_EQ(data.value("account", ""), "******90");
+    EXPECT_EQ(data.value("region", ""), "cn");
+    EXPECT_EQ(data.value("key", ""), "steps");
+    EXPECT_EQ(data.value("records", -1), 2);
     // Полный идентификатор аккаунта наружу не выходит.
     EXPECT_EQ(std::string(resp->body()).find("1234567890"), std::string::npos);
 }
