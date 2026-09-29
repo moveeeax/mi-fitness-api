@@ -211,4 +211,7 @@
     "health_port": 9091,
     "brpop_timeout": 5
   }
+  ,"xiaomi": {
+    "token_key": "${MI_FITNESS_TOKEN_KEY:-}"
+  }
 }

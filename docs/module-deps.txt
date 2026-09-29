@@ -33,6 +33,7 @@ api -> observability
 api -> repositories
 api -> security
 api -> utils
+api -> xiaomi
 billing -> database
 billing -> domain
 billing -> repositories
