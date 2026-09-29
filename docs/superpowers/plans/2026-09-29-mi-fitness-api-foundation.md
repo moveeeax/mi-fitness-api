@@ -21,7 +21,9 @@
 7. Base64 для подписи стандартный, с паддингом. `Utils::Base64` в шаблоне это base64url без паддинга, для протокола Xiaomi он не подходит.
 8. Регион `cn` и пустая строка дают хост `https://hlth.io.mi.com`, остальные `https://<region>.hlth.io.mi.com`. Кандидаты: `ru, cn, de, i2, sg, us`.
 9. Значения токена, `ssecurity` и полный `user_id` не попадают ни в логи, ни в ответы, ни в тексты ошибок. Маскирование: шесть звёзд и два последних символа.
-10. Каждая задача заканчивается зелёным `make test-unit` (а задачи с базой ещё и `make test`) и коммитом.
+10. Собирать и запускать тесты локально нельзя: ни компилятора, ни Docker в рабочем окружении нет. Единственный исполнитель тестов это GitHub Actions. Воркфлоу `ci.yml` шаблона уже делает всё нужное: `make test` в compose с Postgres и Redis, проверку формата, gitleaks, дрейф OpenAPI, гейт разделения бакетов.
+11. Из этого следует ритм работы: каждая задача даёт два прогона CI. Первый на коммите с падающим тестом, он обязан быть красным и именно по той причине, которую ждёт шаг. Второй на коммите с реализацией, он обязан быть зелёным. Красный прогон это результат шага, а не авария.
+12. Работа идёт в ветке на каждую задачу, слияние в `main` после зелёного CI. Прямой пуш в `main` запрещён, иначе красные прогоны окажутся в истории основной ветки.
 
 ## Review Focus
 
@@ -42,7 +44,7 @@
 
 **Interfaces:**
 - Consumes: ничего
-- Produces: собирающийся проект с именем `mi-fitness-api`, зелёные `make test-unit` и `make lint-format`
+- Produces: собирающийся проект с именем `mi-fitness-api`, зелёный CI на первом же пуше
 
 - [ ] **Step 1: Скопировать шаблон, не затащив его историю**
 
@@ -78,11 +80,13 @@ grep -n "MIT" README.md CONTRIBUTING.md THIRD_PARTY_NOTICES.md | head
 - [ ] **Step 5: Убедиться, что база собирается и тесты зелёные**
 
 ```bash
-make test-unit
-make lint-format
+git checkout -b task-1-bootstrap
+git add -A && git commit -m "chore: форк шаблона"
+gh repo create moveeeax/mi-fitness-api --private --source=. --remote=origin --push
+gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
 ```
 
-Ожидание: оба зелёные на неизменённом коде шаблона. Если нет, дальше идти нельзя: сломано окружение, а не порт.
+Ожидание: все работы CI зелёные на неизменённом коде шаблона. Если нет, дальше идти нельзя: сломан форк, а не порт. Смотреть `build-and-test`, `lint-format`, `openapi-drift`, `gate-selftest`.
 
 - [ ] **Step 6: Коммит**
 
@@ -267,7 +271,14 @@ TEST(XiaomiCrypto, NonceLayoutIsTwelveBytesBigEndianMinutes) {
 
 - [ ] **Step 3: Убедиться, что тест падает**
 
-Run: `make test-unit`
+Run:
+
+```bash
+git push -u origin HEAD
+gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+```
+
+Работы CI: `build-and-test`.
 Expected: FAIL на отсутствии `xiaomi/Crypto.hpp`.
 
 - [ ] **Step 4: Реализовать крипту**
@@ -341,7 +352,14 @@ std::string make_nonce(std::int64_t minutes_since_epoch, std::string_view random
 
 - [ ] **Step 5: Тесты зелёные**
 
-Run: `make test-unit`
+Run:
+
+```bash
+git push -u origin HEAD
+gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+```
+
+Работы CI: `build-and-test`.
 Expected: PASS, все 20 векторов сходятся.
 
 - [ ] **Step 6: Коммит**
@@ -461,7 +479,14 @@ TEST(XiaomiCredentials, RejectsKeyOfWrongLength) {
 
 - [ ] **Step 3: Проверить падение**
 
-Run: `make test-unit`
+Run:
+
+```bash
+git push -u origin HEAD
+gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+```
+
+Работы CI: `build-and-test`.
 Expected: FAIL на отсутствии `xiaomi/Credentials.hpp`.
 
 - [ ] **Step 4: Реализация**
@@ -531,7 +556,8 @@ TEST_F(CredentialsRepositoryTest, WrongKeyFailsLoudlyOnLoad) {
 - [ ] **Step 6: Тесты зелёные и коммит**
 
 ```bash
-make test
+git push
+gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
 git add migrations src/xiaomi/Credentials.* src/repositories/CredentialsRepository.* \
         tests/unit/test_xiaomi_credentials.cpp tests/integration/test_credentials_repository.cpp
 git commit -m "feat(xiaomi): токен в Postgres под secretbox, сид из Secret
@@ -664,7 +690,14 @@ TEST(XiaomiLogin, ErrorTextCarriesNoSecrets) {
 
 - [ ] **Step 2: Проверить падение**
 
-Run: `make test-unit`
+Run:
+
+```bash
+git push -u origin HEAD
+gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+```
+
+Работы CI: `build-and-test`.
 Expected: FAIL на отсутствии `xiaomi/CloudClient.hpp`.
 
 - [ ] **Step 3: Реализация логина**
@@ -673,7 +706,14 @@ Expected: FAIL на отсутствии `xiaomi/CloudClient.hpp`.
 
 - [ ] **Step 4: Тесты зелёные**
 
-Run: `make test-unit`
+Run:
+
+```bash
+git push -u origin HEAD
+gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+```
+
+Работы CI: `build-and-test`.
 Expected: PASS.
 
 - [ ] **Step 5: Реализовать CurlTransport и проверить формат заголовков**
@@ -799,7 +839,14 @@ TEST(XiaomiFetch, RequestCarriesBothSignatureFields) {
 
 - [ ] **Step 2: Проверить падение**
 
-Run: `make test-unit`
+Run:
+
+```bash
+git push -u origin HEAD
+gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+```
+
+Работы CI: `build-and-test`.
 Expected: FAIL на отсутствии `Regions.hpp` и методов клиента.
 
 - [ ] **Step 3: Реализация**
@@ -808,7 +855,14 @@ Expected: FAIL на отсутствии `Regions.hpp` и методов кли�
 
 - [ ] **Step 4: Тесты зелёные**
 
-Run: `make test-unit`
+Run:
+
+```bash
+git push -u origin HEAD
+gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+```
+
+Работы CI: `build-and-test`.
 Expected: PASS.
 
 - [ ] **Step 5: Коммит**
@@ -930,29 +984,27 @@ TEST_F(XiaomiProbeTest, AuthFailureIsReportedAsUpstreamAuthError) {
 
 - [ ] **Step 3: Проверить падение и реализовать**
 
-Run: `make test`
+Run:
+
+```bash
+git push -u origin HEAD
+gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+```
+
+Работы CI: `build-and-test` (бакет с базой входит в `make test`).
 Expected: FAIL. Реализация: разбор и валидация параметров, отказ на неизвестном ключе и перевёрнутом диапазоне, вызов `fetch_key`, ответ с замаскированным идентификатором и количеством записей. Сами записи маршрут не отдаёт: это проверка связи, а не выгрузка.
 
 - [ ] **Step 4: Проверить гейты маршрутов**
 
-```bash
-./scripts/check-routes-registered.sh
-./scripts/check-openapi-drift.sh
-make ci-local
-```
-
-- [ ] **Step 5: Живая проверка на настоящем аккаунте**
+Гейты маршрутов живут в работе `openapi-drift` того же воркфлоу, отдельного запуска не требуют. Проверять её вывод в том же прогоне:
 
 ```bash
-export MI_FITNESS_USER_ID=4236479152
-export MI_FITNESS_PASS_TOKEN='<свежий токен>'
-export MI_FITNESS_TOKEN_KEY="$(openssl rand -base64 32)"
-make quickstart
-curl -s -H "X-API-Key: $API_KEY" \
-  'http://localhost:8080/api/v1/xiaomi/probe?key=steps&from=2026-09-22&to=2026-09-22' | jq
+gh run view "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --log-failed | head -40
 ```
 
-Ожидание: непустое `records`. Это первая точка, где порт крипты подтверждается живым облаком, а не только векторами. Если здесь приходит ошибка расшифровки, виноват перенос RC4 или порядок подписи, а не сеть.
+- [ ] **Step 5: Отметить, что живая проверка ждёт деплоя**
+
+Локально поднять сервис нечем, поэтому проверка крипты на настоящем облаке Xiaomi делается в кластере, в задаче 8. Здесь достаточно зелёного CI: маршрут отвечает на подделке транспорта, гейты маршрутов и OpenAPI пройдены.
 
 - [ ] **Step 6: Коммит**
 
@@ -967,7 +1019,213 @@ git commit -m "feat(api): маршрут проверки связи с обла
 
 ---
 
+---
+
+### Task 7: База и роль в кластере Postgres
+
+**Files:**
+- Create: `deploy/db/secret-postgresql-mi-fitness.example.yaml`
+- Create: `deploy/db/database.yaml`
+- Create: `deploy/db/README.md`
+
+**Interfaces:**
+- Consumes: существующий кластер CloudNativePG `postgresql` в namespace `db`
+- Produces: база `mi_fitness`, роль `mi-fitness`, секрет `postgresql-mi-fitness` в namespace `db`, адрес `postgresql-rw.db.svc.cluster.local:5432`
+
+Кластер общий, в нём уже живут роли `tarassov-me` и `tgw` и база `tgw_archive`. Поэтому роль добавляется точечным патчем в массив, а не перезаписью `spec.managed.roles`, и после патча состав ролей проверяется целиком.
+
+- [ ] **Step 1: Завести секрет с паролем роли**
+
+```bash
+kubectl -n db create secret generic postgresql-mi-fitness \
+  --type=kubernetes.io/basic-auth \
+  --from-literal=username=mi-fitness \
+  --from-literal=password="$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)"
+kubectl -n db get secret postgresql-mi-fitness -o jsonpath='{.type}{"\n"}'
+```
+
+Ожидание: тип `kubernetes.io/basic-auth`, как у `postgresql-tgw`. Пароль в терминал не печатать.
+
+- [ ] **Step 2: Добавить роль в кластер, не затронув существующие**
+
+```bash
+kubectl -n db patch cluster postgresql --type=json -p='[{"op":"add","path":"/spec/managed/roles/-","value":{
+  "name":"mi-fitness","comment":"mi-fitness-api db user","ensure":"present","login":true,
+  "superuser":false,"createdb":false,"createrole":false,"inherit":false,"replication":false,
+  "bypassrls":false,"connectionLimit":-1,"passwordSecret":{"name":"postgresql-mi-fitness"}}}]'
+kubectl -n db get cluster postgresql -o jsonpath='{range .spec.managed.roles[*]}{.name}{"\n"}{end}'
+```
+
+Ожидание: в выводе три роли, `tarassov-me`, `tgw` и `mi-fitness`. Если какая-то пропала, патч ушёл заменой вместо добавления, надо откатить.
+
+- [ ] **Step 3: Создать базу декларативно**
+
+```yaml
+# deploy/db/database.yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: mi-fitness
+  namespace: db
+spec:
+  cluster:
+    name: postgresql
+  name: mi_fitness
+  owner: mi-fitness
+  ensure: present
+  # Удаление ресурса не должно уносить данные здоровья вместе с собой.
+  databaseReclaimPolicy: retain
+```
+
+```bash
+kubectl apply -f deploy/db/database.yaml
+kubectl -n db get database mi-fitness -o custom-columns='NAME:.metadata.name,PG:.status.applied,MSG:.status.message'
+```
+
+Ожидание: `applied` равно `true`, сообщение пустое.
+
+- [ ] **Step 4: Проверить подключение ролью, а не суперпользователем**
+
+```bash
+kubectl -n db run psql-check --rm -i --restart=Never \
+  --image=ghcr.io/cloudnative-pg/postgresql:18.3-system-trixie \
+  --env=PGPASSWORD="$(kubectl -n db get secret postgresql-mi-fitness -o jsonpath='{.data.password}' | base64 -d)" \
+  -- psql -h postgresql-rw -U mi-fitness -d mi_fitness \
+  -c 'select current_user, current_database();' \
+  -c 'create table probe(x int); drop table probe;'
+```
+
+Ожидание: `mi-fitness | mi_fitness` и успешное создание с удалением таблицы, то есть владение базой действительно есть.
+
+- [ ] **Step 5: Записать в репозиторий образец и заметку**
+
+`deploy/db/secret-postgresql-mi-fitness.example.yaml` содержит структуру секрета с `REPLACE_ME` вместо пароля. `deploy/db/README.md` описывает, что кластер общий, что роль добавляется патчем-добавлением, и что `databaseReclaimPolicy: retain` оставляет базу живой при удалении ресурса.
+
+- [ ] **Step 6: Коммит**
+
+```bash
+git add deploy/db
+git commit -m "feat(deploy): база mi_fitness и роль в общем кластере CNPG
+
+Роль добавляется патчем-добавлением в spec.managed.roles: кластер общий,
+там уже живут tarassov-me и tgw. Политика retain у базы, чтобы удаление
+ресурса не уносило данные."
+```
+
+---
+
+### Task 8: Деплой в отдельный namespace и живая проверка крипты
+
+**Files:**
+- Modify: `helm/mi-fitness-api/values.yaml` (значения по умолчанию остаются примерами)
+- Create: `deploy/values-prod.yaml`
+- Create: `deploy/secret-app.example.yaml`
+- Create: `deploy/README.md`
+
+**Interfaces:**
+- Consumes: образ из CI, база и роль из задачи 7, маршрут проверки связи из задачи 6
+- Produces: работающий сервис в namespace `mi-fitness-api`, подтверждённый живым ответом облака Xiaomi
+
+- [ ] **Step 1: Namespace и секрет приложения**
+
+```bash
+kubectl create namespace mi-fitness-api
+kubectl -n mi-fitness-api create secret generic mi-fitness-app \
+  --from-literal=MI_FITNESS_USER_ID=4236479152 \
+  --from-literal=MI_FITNESS_PASS_TOKEN='<свежий токен из браузера>' \
+  --from-literal=MI_FITNESS_TOKEN_KEY="$(openssl rand -base64 32)" \
+  --from-literal=DATABASE_PASSWORD="$(kubectl -n db get secret postgresql-mi-fitness -o jsonpath='{.data.password}' | base64 -d)" \
+  --from-literal=API_KEY="$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)"
+```
+
+Токен берётся свежим из браузера, а не из локальной ключницы Python-моста: два держателя одного токена воюют между собой, и Python-мост на этот момент ещё работает.
+
+- [ ] **Step 2: Значения Helm без единого PVC**
+
+```yaml
+# deploy/values-prod.yaml
+image:
+  repository: ghcr.io/moveeeax/mi-fitness-api
+  tag: sha-REPLACE
+externalDatabase:
+  host: postgresql-rw.db.svc.cluster.local
+  port: 5432
+  name: mi_fitness
+  user: mi-fitness
+  poolSize: 5
+  replicaHost: postgresql-ro.db.svc.cluster.local
+  migrationsEnabled: false
+migrations:
+  runAsInitContainer: true
+externalRedis:
+  url: "tcp://redis.db.svc.cluster.local:6379"
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: mi-fitness-api.tarassov.me
+  tls:
+    - hosts: [mi-fitness-api.tarassov.me]
+      secretName: mi-fitness-api-tls
+```
+
+Пароль базы и секреты Xiaomi приходят из `mi-fitness-app` через `envFrom`, в значениях их нет. Проверить, что чарт не создаёт ни одного `PersistentVolumeClaim`:
+
+```bash
+helm template mi-fitness-api helm/mi-fitness-api -f deploy/values-prod.yaml | grep -c PersistentVolumeClaim
+```
+
+Ожидание: ноль. Если не ноль, найти включённый подчарт или блок `persistence` и выключить.
+
+- [ ] **Step 3: Развернуть API и воркер**
+
+```bash
+helm upgrade --install mi-fitness-api helm/mi-fitness-api \
+  -n mi-fitness-api -f deploy/values-prod.yaml --wait --timeout 5m
+kubectl -n mi-fitness-api get deploy,pod,ingress
+kubectl -n mi-fitness-api logs -l app.kubernetes.io/name=mi-fitness-api --tail=30
+```
+
+Ожидание: под готов, init-контейнер миграций отработал один раз, в логах нет попыток подключиться к Kafka и к почте.
+
+- [ ] **Step 4: Убедиться, что миграция создала таблицу учётных данных**
+
+```bash
+kubectl -n db run psql-check --rm -i --restart=Never \
+  --image=ghcr.io/cloudnative-pg/postgresql:18.3-system-trixie \
+  --env=PGPASSWORD="$(kubectl -n db get secret postgresql-mi-fitness -o jsonpath='{.data.password}' | base64 -d)" \
+  -- psql -h postgresql-rw -U mi-fitness -d mi_fitness -c '\dt'
+```
+
+Ожидание: среди таблиц есть `xiaomi_credentials` и служебные таблицы миграций шаблона.
+
+- [ ] **Step 5: Живая проверка крипты на настоящем облаке**
+
+```bash
+API_KEY=$(kubectl -n mi-fitness-api get secret mi-fitness-app -o jsonpath='{.data.API_KEY}' | base64 -d)
+curl -s -H "X-API-Key: $API_KEY" \
+  'https://mi-fitness-api.tarassov.me/api/v1/xiaomi/probe?key=steps&from=2026-09-22&to=2026-09-22' | jq
+```
+
+Ожидание: `records` больше нуля, `account` равен `******52`, `region` равен `cn`. Это единственная точка всего плана, где порт крипты подтверждается настоящим облаком, а не векторами.
+
+Разбор отказов: ошибка расшифровки означает промах в переносе RC4 или в порядке подписи, а не сеть. `kind: auth` означает, что токен в секрете уже мёртв, надо взять свежий и пересоздать секрет. Пустое `records` при коде 200 означает, что за эти сутки записей нет, и это не ошибка.
+
+- [ ] **Step 6: Коммит**
+
+```bash
+git add deploy helm
+git commit -m "feat(deploy): сервис в отдельном namespace без PVC
+
+Состояние только в Postgres из namespace db и в Redis, тома не нужны.
+Миграции идут init-контейнером, чтобы реплики не гонялись за ними на
+старте. Живая проверка probe подтверждает порт крипты на настоящем облаке."
+```
+
 ## Что идёт следующими планами
 
 1. План 2, данные: нормализация восьми типов с семью правилами из спеки, репозитории, `SyncService`, воркер, `sync_runs`, идемпотентность через `ON CONFLICT`, сверка чисел с Python-мостом.
-2. План 3, витрина и переход: десять маршрутов REST, экспорт JSON и CSV, `Tasks::` расписание, Helm и деплой, пауза и удаление Python-моста вместе с его PVC.
+2. План 3, витрина и переход: десять маршрутов REST, экспорт JSON и CSV, расписание через `Tasks::`, пауза и удаление Python-моста вместе с его PVC. Инфраструктура деплоя к этому моменту уже стоит: она въехала в задачи 7 и 8 этого плана, потому что без развёрнутого сервиса крипту не проверить ничем.
