@@ -9,8 +9,12 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
+
+#include <nlohmann/json.hpp>
 
 #include "xiaomi/Credentials.hpp"
 #include "xiaomi/Errors.hpp"
@@ -44,6 +48,27 @@ public:
     void login();
 
     const Credentials& credentials() const { return credentials_; }
+
+    /**
+     * @brief Записи одного ключа данных за диапазон дат, все страницы разом.
+     *
+     * Пагинация идёт по курсору next_key до has_more=false. Повтор курсора и
+     * превышение потолка страниц дают MiFitnessProtocolError: бесконечный цикл
+     * хуже громкого отказа. Вызов до login() даёт MiFitnessAuthError.
+     */
+    std::vector<nlohmann::json> fetch_key(std::string_view key,
+                                          std::string_view start_date,
+                                          std::string_view end_date,
+                                          std::optional<std::string_view> region);
+
+    /**
+     * @brief Подписанный POST к облаку. Возвращает поле result конверта.
+     *
+     * Ненулевой code это отказ: коды авторизации апстрима (401, 403, -6,
+     * -10001) дают MiFitnessAuthError, который очередь заданий не ретраит,
+     * остальные MiFitnessProtocolError.
+     */
+    nlohmann::json post_signed(const std::string& base_url, std::string_view api_path, const nlohmann::json& payload);
 
     /// Потолок страниц пагинации (используется с задачи 5).
     void set_max_pages(int max_pages) { max_pages_ = max_pages; }
