@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -17,6 +19,7 @@
 #include <nlohmann/json.hpp>
 
 #include "xiaomi/Crypto.hpp"
+#include "xiaomi/Regions.hpp"
 
 namespace Xiaomi {
 
@@ -200,6 +203,137 @@ void CloudClient::login() {
         throw MiFitnessAuthError("Xiaomi login response is missing a serviceToken cookie");
     }
     cookies_ = cookies;
+}
+
+namespace {
+
+/// Процентное кодирование для application/x-www-form-urlencoded: всё, кроме
+/// букв, цифр и -_.~. Пробел кодируется как %20, а не плюсом: так делает
+/// urlencode в Python с настройками апстрима.
+std::string url_encode(std::string_view value) {
+    static constexpr char kHex[] = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(value.size());
+    for (const char c : value) {
+        const auto byte = static_cast<unsigned char>(c);
+        const bool unreserved = (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') ||
+                                (byte >= '0' && byte <= '9') || byte == '-' || byte == '_' || byte == '.' ||
+                                byte == '~';
+        if (unreserved) {
+            out.push_back(c);
+        } else {
+            out.push_back('%');
+            out.push_back(kHex[byte >> 4]);
+            out.push_back(kHex[byte & 0x0f]);
+        }
+    }
+    return out;
+}
+
+/// Коды авторизации апстрима. Такой отказ не ретраится: повтор только сжигает
+/// попытки, нужен свежий токен.
+bool is_authentication_code(long long code) {
+    return code == 401 || code == 403 || code == -6 || code == -10001;
+}
+
+}  // namespace
+
+nlohmann::json CloudClient::post_signed(const std::string& base_url,
+                                        std::string_view api_path,
+                                        const nlohmann::json& payload) {
+    if (ssecurity_b64_.empty() || cookies_.empty()) {
+        throw MiFitnessAuthError("data request before a successful login");
+    }
+
+    const std::string data = payload.dump();
+    const auto minutes =
+        std::chrono::duration_cast<std::chrono::minutes>(std::chrono::system_clock::now().time_since_epoch()).count();
+    const std::string nonce = Crypto::make_nonce(minutes, Crypto::random_bytes(8));
+    const std::string signed_nonce = Crypto::signed_nonce(ssecurity_b64_, nonce);
+
+    // Подпись считается дважды: до шифрования от открытой формы и после от
+    // зашифрованных значений. Порядок обязателен, он проверен золотыми
+    // векторами.
+    const std::string rc4_hash = Crypto::signature("POST", api_path, data, std::nullopt, signed_nonce);
+    const std::string encrypted_data = Crypto::b64_encode(Crypto::rc4(signed_nonce, data));
+    const std::string encrypted_hash = Crypto::b64_encode(Crypto::rc4(signed_nonce, rc4_hash));
+    const std::string signature = Crypto::signature("POST", api_path, encrypted_data, encrypted_hash, signed_nonce);
+
+    HttpRequest request;
+    request.method = "POST";
+    request.url = base_url + std::string(api_path);
+    request.body = "data=" + url_encode(encrypted_data) + "&rc4_hash__=" + url_encode(encrypted_hash) +
+                   "&signature=" + url_encode(signature) + "&_nonce=" + url_encode(Crypto::b64_encode(nonce));
+    request.headers.emplace_back("Cookie", cookies_);
+    request.headers.emplace_back("Content-Type", "application/x-www-form-urlencoded");
+
+    const HttpResponse response = transport_.send(request);
+    if (response.status == 401 || response.status == 403) {
+        throw MiFitnessAuthError("Xiaomi data request was refused: HTTP " + std::to_string(response.status));
+    }
+    if (response.status != 200) {
+        throw MiFitnessProtocolError("Xiaomi data request failed: HTTP " + std::to_string(response.status));
+    }
+
+    const std::string plaintext = Crypto::rc4(signed_nonce, Crypto::b64_decode(response.body));
+    const nlohmann::json envelope = nlohmann::json::parse(plaintext, nullptr, /*allow_exceptions=*/false);
+    if (envelope.is_discarded() || !envelope.is_object()) {
+        // Первый признак смены закрытого формата: расшифровалось, но это не
+        // JSON, либо не расшифровалось вовсе.
+        throw MiFitnessProtocolError("Xiaomi response did not decrypt to a JSON object");
+    }
+
+    const long long code =
+        envelope.contains("code") && envelope["code"].is_number_integer() ? envelope["code"].get<long long>() : -1;
+    if (code != 0) {
+        // Текст message управляется сервером и в ошибку не идёт: код достаточен
+        // для диагностики, а содержимое чужой строки в логах не нужно.
+        if (is_authentication_code(code)) {
+            throw MiFitnessAuthError("Xiaomi refused authentication, code " + std::to_string(code));
+        }
+        throw MiFitnessProtocolError("Xiaomi returned error code " + std::to_string(code));
+    }
+    return envelope.value("result", nlohmann::json::object());
+}
+
+std::vector<nlohmann::json> CloudClient::fetch_key(std::string_view key,
+                                                   std::string_view start_date,
+                                                   std::string_view end_date,
+                                                   std::optional<std::string_view> region) {
+    const std::string region_name(region.value_or(std::string_view(credentials_.region)));
+    const std::string base_url = host_for_region(region_name);
+    const auto [start_time, end_time] = range_to_timestamps(start_date, end_date, region_name);
+
+    std::vector<nlohmann::json> items;
+    std::set<std::string> seen_cursors;
+    std::optional<std::string> next_key;
+    for (int page = 1;; ++page) {
+        if (page > max_pages_) {
+            throw MiFitnessProtocolError("Xiaomi pagination exceeded the page ceiling");
+        }
+        nlohmann::json payload{{"start_time", start_time}, {"end_time", end_time}, {"key", std::string(key)}};
+        if (next_key.has_value()) {
+            payload["next_key"] = *next_key;
+        }
+        const nlohmann::json result = post_signed(base_url, "/app/v1/data/get_fitness_data_by_time", payload);
+
+        if (result.contains("data_list") && result["data_list"].is_array()) {
+            for (const auto& item : result["data_list"]) {
+                items.push_back(item);
+            }
+        }
+        if (!result.value("has_more", false) || !result.contains("next_key") || result["next_key"].is_null()) {
+            break;
+        }
+        const auto& cursor_json = result["next_key"];
+        const std::string cursor = cursor_json.is_string() ? cursor_json.get<std::string>() : cursor_json.dump();
+        // Повтор курсора это петля, и лучше упасть, чем крутиться вечно.
+        if (!seen_cursors.insert(cursor).second) {
+            throw MiFitnessProtocolError("Xiaomi pagination cursor loop detected");
+        }
+        next_key = cursor;
+    }
+    return items;
 }
 
 }  // namespace Xiaomi

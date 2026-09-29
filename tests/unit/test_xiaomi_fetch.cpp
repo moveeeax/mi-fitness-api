@@ -64,8 +64,14 @@ TEST(XiaomiFetch, PaginatesUntilHasMoreIsFalse) {
     ASSERT_EQ(items.size(), 2u);
     EXPECT_EQ(items[0]["a"], 1);
     EXPECT_EQ(items[1]["a"], 2);
-    // Вторая страница несёт курсор первой.
-    EXPECT_NE(FakeHttpTransport::form_value(transport.requests().back().body, "data").find("k1"), std::string::npos);
+    // Вторая страница несёт курсор первой. Поле data зашифровано, поэтому
+    // расшифровываем его так же, как это делает сервер: nonce из тела.
+    const auto& second_page = transport.requests().back();
+    const std::string nonce = Xiaomi::Crypto::b64_decode(FakeHttpTransport::form_value(second_page.body, "_nonce"));
+    const std::string signed_nonce = Xiaomi::Crypto::signed_nonce(FakeHttpTransport::kSsecurityB64, nonce);
+    const std::string decrypted = Xiaomi::Crypto::rc4(
+        signed_nonce, Xiaomi::Crypto::b64_decode(FakeHttpTransport::form_value(second_page.body, "data")));
+    EXPECT_NE(decrypted.find(R"("next_key":"k1")"), std::string::npos) << decrypted;
 }
 
 TEST(XiaomiFetch, RepeatedCursorIsTreatedAsALoop) {
