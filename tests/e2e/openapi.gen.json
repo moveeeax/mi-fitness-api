@@ -1173,6 +1173,16 @@
   }
  },
  "paths": {
+  "/api/v1/xiaomi/probe": {
+   "get": {
+    "summary": "XiaomiController::listXiaomi",
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    }
+   }
+  },
   "/": {
    "get": {
     "summary": "Endpoint discovery — list every registered route",
@@ -3516,7 +3526,7 @@
  "x-generated": {
   "by": "scripts/gen-openapi-json.sh",
   "source": "docs/openapi.yaml",
-  "source_bytes": 62674,
-  "source_fnv1a64": "d419e570f82c04ac"
+  "source_bytes": 62803,
+  "source_fnv1a64": "664c69e62b2d19ec"
  }
 }

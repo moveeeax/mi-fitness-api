@@ -28,7 +28,7 @@ public:
     ADD_METHOD_TO(XiaomiController::probe, "/api/v1/xiaomi/probe", Get);
     METHOD_LIST_END
 
-    void probe(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
+    void probe(const HttpRequestPtr& /*req*/, std::function<void(const HttpResponsePtr&)>&& callback) {
         json response = {{"message", "XiaomiController::probe — TODO"}};
         callback(Response::ok(response));
     }
