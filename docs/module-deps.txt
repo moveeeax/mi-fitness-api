@@ -83,3 +83,4 @@ security -> database
 security -> utils
 webhooks -> jobs
 webhooks -> utils
+xiaomi -> utils
