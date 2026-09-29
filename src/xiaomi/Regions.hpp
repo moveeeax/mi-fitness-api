@@ -21,6 +21,21 @@ namespace Xiaomi {
 
 inline constexpr std::array<std::string_view, 6> kKnownRegions = {"ru", "cn", "de", "i2", "sg", "us"};
 
+/// Пустая строка это синоним cn. Остальное сверяется со списком кандидатов:
+/// значение попадает в имя хоста, и произвольная строка увела бы запрос с
+/// куками сессии на чужой домен.
+inline bool is_known_region(std::string_view region) {
+    if (region.empty()) {
+        return true;
+    }
+    for (const auto candidate : kKnownRegions) {
+        if (region == candidate) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// Регион cn и пустая строка живут на hlth.io.mi.com, остальные на поддомене.
 inline std::string host_for_region(std::string_view region) {
     if (region.empty() || region == "cn") {

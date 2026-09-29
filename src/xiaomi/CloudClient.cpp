@@ -134,6 +134,14 @@ void CloudClient::login() {
     request.headers.emplace_back("Cookie", "userId=" + credentials_.user_id + "; passToken=" + credentials_.pass_token);
 
     const HttpResponse response = transport_.send(request);
+    // Статус до разбора тела: транзиентный 5xx не должен выглядеть мёртвыми
+    // учётными данными, auth-отказ очередью не ретраится (находка обзора 1).
+    if (response.status == 401 || response.status == 403) {
+        throw MiFitnessAuthError("Xiaomi login was refused: HTTP " + std::to_string(response.status));
+    }
+    if (response.status != 200) {
+        throw MiFitnessProtocolError("Xiaomi login failed: HTTP " + std::to_string(response.status));
+    }
     if (response.body.rfind(kLoginPrefix, 0) != 0) {
         // Тело в текст ошибки не идёт: там бывают куски учётных данных.
         throw MiFitnessAuthError("Xiaomi login response is missing the &&&START&&& prefix");
@@ -301,7 +309,13 @@ nlohmann::json CloudClient::post_signed(const std::string& base_url,
         }
         throw MiFitnessProtocolError("Xiaomi returned error code " + std::to_string(code));
     }
-    return envelope.value("result", nlohmann::json::object());
+    const nlohmann::json result = envelope.value("result", nlohmann::json::object());
+    if (!result.is_object()) {
+        // Несовпадение формы это смена закрытого формата, а не голое
+        // исключение nlohmann вне таксономии ретраев (находка обзора 3).
+        throw MiFitnessProtocolError("Xiaomi envelope result is not an object");
+    }
+    return result;
 }
 
 std::vector<nlohmann::json> CloudClient::fetch_key(std::string_view key,
@@ -330,11 +344,31 @@ std::vector<nlohmann::json> CloudClient::fetch_key(std::string_view key,
                 items.push_back(item);
             }
         }
-        if (!result.value("has_more", false) || !result.contains("next_key") || result["next_key"].is_null()) {
+        // has_more приходит и bool, и числом: Python принимает его по
+        // truthiness, порт обязан так же, а не падать type_error.
+        const bool has_more = [&result] {
+            if (!result.contains("has_more")) {
+                return false;
+            }
+            const auto& flag = result["has_more"];
+            if (flag.is_boolean()) {
+                return flag.get<bool>();
+            }
+            if (flag.is_number()) {
+                return flag.get<double>() != 0.0;
+            }
+            return false;
+        }();
+        if (!has_more || !result.contains("next_key") || result["next_key"].is_null()) {
             break;
         }
         const auto& cursor_json = result["next_key"];
         const std::string cursor = cursor_json.is_string() ? cursor_json.get<std::string>() : cursor_json.dump();
+        // Пустой курсор у Python falsy и завершает пагинацию. Лишний запрос с
+        // пустым next_key оборачивался бы ложной ошибкой петли.
+        if (cursor.empty()) {
+            break;
+        }
         // Повтор курсора это петля, и лучше упасть, чем крутиться вечно.
         if (!seen_cursors.insert(cursor).second) {
             throw MiFitnessProtocolError("Xiaomi pagination cursor loop detected");

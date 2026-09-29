@@ -21,6 +21,7 @@
 #include "utils/Config.hpp"
 #include "xiaomi/Credentials.hpp"
 #include "xiaomi/Crypto.hpp"
+#include "xiaomi/Regions.hpp"
 
 namespace Repositories {
 
@@ -48,6 +49,7 @@ public:
             out.user_id = row["user_id"].template as<std::string>();
             out.region = row["region"].template as<std::string>();
             out.pass_token = Xiaomi::unseal(sealed, key_b64_);
+            validate_identity(out);
             // Проверка и на чтении тоже: значение могло попасть в базу мимо
             // store, и тогда отказ должен случиться здесь, а не на запросе к
             // Xiaomi с невнятной ошибкой кодирования заголовка.
@@ -59,6 +61,7 @@ public:
     /// Пишет или обновляет единственную строку. Токен проверяется до записи:
     /// мусор в базе стоит дороже, чем отказ на входе.
     void store(const Xiaomi::Credentials& credentials) {
+        validate_identity(credentials);
         Xiaomi::validate_pass_token(credentials.pass_token);
         const Xiaomi::Sealed sealed = Xiaomi::seal(credentials.pass_token, key_b64_);
         const std::string ciphertext_b64 = Xiaomi::Crypto::b64_encode(sealed.ciphertext);
@@ -82,6 +85,16 @@ public:
     }
 
 private:
+    /// user_id уходит в заголовок Cookie рядом с токеном, region в имя хоста
+    /// облака. CRLF в первом это инъекция заголовка, произвольная строка во
+    /// втором увела бы куки запроса на чужой домен (находка обзора 2).
+    static void validate_identity(const Xiaomi::Credentials& credentials) {
+        Xiaomi::validate_pass_token(credentials.user_id);
+        if (!Xiaomi::is_known_region(credentials.region)) {
+            throw Xiaomi::MiFitnessAuthError("region is not one of the known candidates");
+        }
+    }
+
     std::string key_b64_;
 };
 

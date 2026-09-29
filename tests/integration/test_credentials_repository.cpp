@@ -87,6 +87,21 @@ TEST_F(CredentialsRepositoryTest, WrongKeyFailsLoudlyOnLoad) {
     EXPECT_THROW(reader.load(), Xiaomi::MiFitnessAuthError);
 }
 
+// Находка обзора 2: user_id уходит в заголовок Cookie рядом с токеном, а
+// region подставляется в хост облака. CRLF в первом это инъекция заголовка,
+// произвольная строка во втором уводит куки запроса на чужой хост.
+TEST_F(CredentialsRepositoryTest, StoreRejectsUserIdWithHeaderInjection) {
+    Repositories::CredentialsRepository repo(kTestKeyB64);
+    EXPECT_THROW(repo.store({"123\r\nHost: evil", std::string(347, 'S'), "cn"}), Xiaomi::MiFitnessAuthError);
+    EXPECT_EQ(count_rows(), 0);
+}
+
+TEST_F(CredentialsRepositoryTest, StoreRejectsUnknownRegion) {
+    Repositories::CredentialsRepository repo(kTestKeyB64);
+    EXPECT_THROW(repo.store({"1234567890", std::string(347, 'S'), "evil.com/x"}), Xiaomi::MiFitnessAuthError);
+    EXPECT_EQ(count_rows(), 0);
+}
+
 // Мусор в базе стоит дороже отказа на входе: проверка стоит до записи.
 TEST_F(CredentialsRepositoryTest, StoreRejectsTokenThatCannotGoIntoACookie) {
     Repositories::CredentialsRepository repo(kTestKeyB64);
