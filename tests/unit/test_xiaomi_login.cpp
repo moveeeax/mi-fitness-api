@@ -145,6 +145,20 @@ TEST(XiaomiLogin, RotationPersistFailureDoesNotLoseTheNewToken) {
     EXPECT_EQ(client.credentials().pass_token, "ROTATED");
 }
 
+// Запрос без User-Agent облако Xiaomi встречает конвертом с passToken:null:
+// проверено живой диагностикой 2026-09-29. Оба апстрим-клиента (httpx у
+// Python-моста, urllib в диагностике) шлют свой UA по умолчанию, libcurl не
+// шлёт никакого. Заголовок обязан стоять на каждом запросе.
+TEST(XiaomiLogin, EveryRequestCarriesAUserAgent) {
+    FakeHttpTransport transport;
+    transport.reply_login();
+    Xiaomi::CloudClient client(transport, seed(), [](const auto&) {});
+    client.login();
+    for (const auto& request : transport.requests()) {
+        EXPECT_FALSE(header_value(request, "User-Agent").empty()) << request.url;
+    }
+}
+
 TEST(XiaomiLogin, ErrorTextCarriesNoSecrets) {
     FakeHttpTransport transport;
     transport.reply({200, std::string("&&&START&&&") + R"({"passToken":"SUPERSECRET","userId":1})", {}});
