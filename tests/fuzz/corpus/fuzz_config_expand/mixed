@@ -1,0 +1,1 @@
+prefix ${FUZZ_SET_VAR} middle ${FUZZ_UNSET_VAR:-d} suffix

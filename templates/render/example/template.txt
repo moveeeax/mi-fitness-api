@@ -1,0 +1,8 @@
+Invoice {{ invoice_no }}
+
+Customer: {{ customer_name }}
+Issued: {{ issued_on }}
+Total due: {{ total_due }}
+Notes: {{ note }}
+
+Thank you for your business!

@@ -1,0 +1,27 @@
+# Exceptions for scripts/check-config-sync.sh — every line carries its reason.
+#
+# Two entry kinds:
+#   triple <json.path> <ENV_NAME>   a real config read the extractor regex
+#                                   cannot see (it only parses literal
+#                                   cfg.get<T>("path", "ENV", ...) calls)
+#   absent-json <json.path>         a key deliberately NOT present in
+#                                   config/config.json + config.sample.json
+#
+# Rot protection is built into the gate: an entry that becomes satisfiable
+# (triple now parsed directly, absent-json key added to the jsons or no
+# longer read) FAILS the gate until the entry is deleted.
+
+# Core.cpp passes these key/env pairs as const char* arguments into the
+# shared register_depth_metric_() helper, which performs the cfg.get<int>()
+# — one call site, two knobs, invisible to the literal-triple regex.
+triple jobs.dlq_metric_refresh_sec JOBS_DLQ_METRIC_REFRESH_SEC
+triple jobs.queue_metric_refresh_sec JOBS_QUEUE_METRIC_REFRESH_SEC
+
+# The code default is Utils::Strings::kDefaultProtectedPathsCsv (the login/
+# register/refresh brute-force surface). AppConfig::get<std::string> returns
+# a present-but-empty string AS-IS (only non-string types fall back to the
+# default on ""), so a '${RATE_LIMIT_PROTECTED_PATHS:-}' placeholder in the
+# json would silently EMPTY the protected set — and duplicating the C++
+# constant into the json would recreate the api.public_paths full-override
+# footgun. Env-or-code-default only, on purpose.
+absent-json rate_limit.protected_paths

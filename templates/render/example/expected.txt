@@ -1,0 +1,13 @@
+# Static labels the example template prints. Every line here must occur BOTH
+# in the rendered artifact's extracted text and verbatim in template.txt (the
+# anti-rot cross-check), so this file cannot drift into asserting labels the
+# template stopped printing.
+Invoice
+Customer:
+Issued:
+Total due:
+Notes:
+Thank you for your business!
+# `kind` is a control value (which branch/variant to render); the template
+# deliberately never prints it.
+unprinted kind

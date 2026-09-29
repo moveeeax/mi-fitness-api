@@ -1,0 +1,58 @@
+{
+  "name": "mi-fitness-api",
+
+  "// image": "The dependency-heavy `builder` stage that CI publishes on every vcpkg.json / Dockerfile change (.github/workflows/builder-cache.yml). It already contains gcc-13, cmake, ninja, the /opt/vcpkg toolchain AND the full prebuilt vcpkg world at /app/build/vcpkg_installed — so the first configure here is seconds, not the ~30-minute cold dependency build. The upstream package is public; if your fork keeps its GHCR package private, `docker login ghcr.io` (PAT with read:packages) before opening the container. Forks: point this at your own GHCR namespace after `make init` (the upstream image still works until your first builder-cache CI run). Note: the image is linux/amd64 only — on Apple Silicon it runs under emulation (slow compiles); prefer an x86_64 host or codespace.",
+  "image": "ghcr.io/your-registry/your-project/mi-fitness-api/builder:cache",
+
+  "// workspaceFolder": "Deliberately NOT /app: the image keeps its own /app (sources + build + the prebuilt /app/build/vcpkg_installed). Mounting the checkout over /app would hide that tree and force the cold vcpkg build the image exists to avoid.",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/${localWorkspaceFolderBasename},type=bind,consistency=cached",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+
+  "// mounts": "build/ on a named volume: native-FS speed for object files on macOS/Windows hosts, and incremental state survives container rebuilds.",
+  "mounts": [
+    "source=${localWorkspaceFolderBasename}-build,target=/workspaces/${localWorkspaceFolderBasename}/build,type=volume"
+  ],
+
+  "// containerEnv": "PRESET=devcontainer flips every Makefile local target (test-local, build-local, compile-commands, ...) to the `devcontainer` CMake preset, whose VCPKG_INSTALLED_DIR cache variable points the vcpkg toolchain at the world already installed inside the image — the configure-time manifest install becomes a no-op instead of a from-source rebuild. (A cache variable, not an env var: the pinned vcpkg's toolchain only honors -DVCPKG_INSTALLED_DIR.) Editing vcpkg.json later rebuilds only the delta.",
+  "containerEnv": {
+    "VCPKG_ROOT": "/opt/vcpkg",
+    "PRESET": "devcontainer"
+  },
+
+  "// features": "docker-in-docker gives the compose targets (make up / make test) a real daemon inside the container — run `make warm-cache` there first so `make test` reuses the CI layers. The day-to-day inner loop stays native: make test-local NAME='Foo*'.",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+
+  "remoteUser": "root",
+  "hostRequirements": {
+    "memory": "8gb"
+  },
+
+  "// postCreateCommand": "Configure (the `devcontainer` preset, via PRESET above) + symlink compile_commands.json for clangd. Seconds, not a build: the vcpkg install step no-ops against the prebaked /app/build/vcpkg_installed.",
+  "postCreateCommand": "make compile-commands",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "llvm-vs-code-extensions.vscode-clangd",
+        "ms-vscode.cmake-tools",
+        "twxs.cmake",
+        "ms-azuretools.vscode-docker",
+        "github.vscode-pull-request-github",
+        "mhutchie.git-graph",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "C_Cpp.intelliSenseEngine": "disabled",
+        "clangd.arguments": ["--background-index", "--header-insertion=never"],
+        "cmake.configureOnOpen": false,
+        "files.associations": {
+          "*.hpp": "cpp"
+        }
+      }
+    }
+  }
+}

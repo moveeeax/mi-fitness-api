@@ -1,0 +1,287 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+# Publishes linux/amd64 images on tags matching v<semver>. (arm64 was dropped:
+# QEMU-emulated C++ builds took hours and the deploy targets are amd64.) Uses the repo's
+# existing multi-stage Dockerfile — runtime is the default final stage,
+# worker-runtime is the worker image. Both get tagged with the git tag and
+# :latest.
+#
+# Registry: GHCR `ghcr.io/your-registry/your-project/mi-fitness-api{,-worker,-frontend}` — this MUST
+# match what the runtime actually pulls. docker/docker-compose.yml and
+# helm/*/values-prod.yaml both deploy `ghcr.io/your-registry/your-project/…`. Pushing to
+# GHCR here would produce images nothing deploys. Requires repo secrets
+# DOCKER_USERNAME / DOCKER_PASSWORD.
+#
+# Build order:
+#   1. build-staging  — push multi-arch under :<version>-staging (no :latest yet)
+#   2. scan           — Trivy gates on the staging tags; fails release on fixable CRITICAL
+#   3. promote        — imagetools create stitches staging digest into :<version>/:latest
+#   4. supply-chain   — SPDX SBOM per image (syft), cosign keyless sign + SBOM attest by digest
+#   5. github-release — GitHub Release notes + SBOM assets (needs: promote, supply-chain)
+#
+# Least privilege: no workflow-wide token scope. Each job declares only the
+# permissions it actually needs.
+permissions: {}
+
+env:
+  # Single source of truth for the published image namespace. Derived from the
+  # repo so a FORK publishes under its own owner/name with zero edits — the
+  # hardcoded upstream namespace forced every fork to either patch this line
+  # (and carry the diff forever) or silently push images nothing deploys
+  # (downstream bump: site b676430 rebranded this by hand and left compose/
+  # helm pointing at the upstream images). NOTE: docker/docker-compose.yml and
+  # helm values default to the UPSTREAM ghcr.io/moveeeax images — a fork that
+  # releases its own images points those at ${IMAGE_NAME} (init-project.sh
+  # rewrites them, or override APP_IMAGE/WORKER_IMAGE/image.repository).
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+  build-staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read   # checkout
+      packages: write  # push images to GHCR
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Extract version
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      # Push under a staging tag so Trivy can scan before :latest/:version are published.
+      # The promote job (needs: scan) will move these digests into the final tags via
+      # imagetools create (no rebuild — digest-level operation).
+      - name: Build and push app image (multi-arch, staging tag)
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: runtime
+          platforms: linux/amd64
+          push: true
+          # APP_VERSION stamps the tag into the binary (Core::version(),
+          # GET /health) — without it the image reports the baked CMake
+          # fallback, which went three releases stale before anyone noticed.
+          build-args: APP_VERSION=${{ steps.ver.outputs.version }}
+          tags: ${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.version }}-staging
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          sbom: true
+          provenance: mode=max
+
+      - name: Build and push worker image (multi-arch, staging tag)
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: worker-runtime
+          platforms: linux/amd64
+          push: true
+          build-args: APP_VERSION=${{ steps.ver.outputs.version }}
+          tags: ${{ env.IMAGE_NAME }}-worker:${{ steps.ver.outputs.version }}-staging
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          sbom: true
+          provenance: mode=max
+
+      - name: Build and push frontend image (staging tag)
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        with:
+          context: .
+          file: frontend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE_NAME }}-frontend:${{ steps.ver.outputs.version }}-staging
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          sbom: true
+          provenance: mode=max
+
+  scan:
+    runs-on: ubuntu-latest
+    needs: build-staging
+    permissions:
+      contents: read
+      packages: read   # pull staging images from GHCR for scanning
+    steps:
+      - name: Extract version
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Vulnerability gate — scan the staging tags before they get promoted to
+      # :latest/:version. Fails on a fixable CRITICAL so nothing broken ships.
+      # platform: linux/amd64 matches the most common deployment target; the
+      # multi-arch manifest index requires an explicit platform hint for Trivy.
+      - name: Scan app image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.version }}-staging
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          image-config-scanners: ''
+          scan-type: image
+          platform: linux/amd64
+
+      - name: Scan worker image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}-worker:${{ steps.ver.outputs.version }}-staging
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          image-config-scanners: ''
+          scan-type: image
+          platform: linux/amd64
+
+  promote:
+    runs-on: ubuntu-latest
+    needs: scan
+    permissions:
+      contents: read
+      packages: write  # promote staging digests to release tags in GHCR
+    steps:
+      - name: Extract version
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      # Promote by digest — imagetools create stitches the already-pushed staging
+      # digest into the final public tags without any layer re-pull or rebuild.
+      - name: Promote app image to version + latest
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.version }} \
+            -t ${{ env.IMAGE_NAME }}:latest \
+            ${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.version }}-staging
+
+      - name: Promote worker image to version + latest
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.IMAGE_NAME }}-worker:${{ steps.ver.outputs.version }} \
+            -t ${{ env.IMAGE_NAME }}-worker:latest \
+            ${{ env.IMAGE_NAME }}-worker:${{ steps.ver.outputs.version }}-staging
+          docker buildx imagetools create \
+            -t ${{ env.IMAGE_NAME }}-frontend:${{ steps.ver.outputs.version }} \
+            -t ${{ env.IMAGE_NAME }}-frontend:latest \
+            ${{ env.IMAGE_NAME }}-frontend:${{ steps.ver.outputs.version }}-staging
+
+  # Supply chain: for each published image, generate an SPDX SBOM with syft,
+  # sign the image keyless with cosign (OIDC — Fulcio binds the signature to
+  # THIS workflow's identity, no long-lived key to leak or rotate), and attach
+  # the SBOM as a cosign attestation. Everything operates on the manifest
+  # DIGEST, so the signature covers every tag pointing at it (:<version>,
+  # :latest and the -staging tag are the same digest after promote).
+  # Verify commands: SECURITY.md § "Verifying release images and SBOMs".
+  supply-chain:
+    runs-on: ubuntu-latest
+    needs: promote
+    permissions:
+      packages: write  # push cosign signatures/attestations next to the images in GHCR
+      id-token: write  # mint the OIDC token cosign trades for a Fulcio signing cert
+    steps:
+      - name: Extract version
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+
+      - name: Install syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610  # v0.24.0
+
+      - name: SBOM + sign + attest (app, worker, frontend)
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          SYFT: ${{ steps.syft.outputs.cmd }}
+        run: |
+          set -euo pipefail
+          mkdir -p sbom
+          for suffix in "" "-worker" "-frontend"; do
+            image="${IMAGE_NAME}${suffix}"
+            digest=$(docker buildx imagetools inspect "${image}:${VERSION}" \
+              --format '{{println .Manifest.Digest}}')
+            base=$(basename "${image}")
+            sbom_file="sbom/${base}-${VERSION}.spdx.json"
+            echo "::group::${image}@${digest}"
+            "${SYFT}" "registry:${image}@${digest}" -o "spdx-json=${sbom_file}"
+            cosign sign --yes "${image}@${digest}"
+            cosign attest --yes --type spdxjson --predicate "${sbom_file}" "${image}@${digest}"
+            echo "::endgroup::"
+          done
+
+      # Hand the SBOM files to the github-release job so they land on the
+      # Release page as downloadable assets (same bytes as the attestation).
+      - name: Upload SBOMs for the release job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: sboms
+          path: sbom/*.spdx.json
+          if-no-files-found: error
+
+  github-release:
+    runs-on: ubuntu-latest
+    needs: [promote, supply-chain]
+    permissions:
+      contents: write  # create the GitHub Release + tag notes
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0  # needed for CHANGELOG parsing
+
+      - name: Fetch SBOMs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: sboms
+          path: sbom
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
+        with:
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: sbom/*.spdx.json

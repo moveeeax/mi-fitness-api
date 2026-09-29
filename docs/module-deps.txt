@@ -1,0 +1,84 @@
+# module-deps.txt — the allowed include edges between src/ directories.
+#
+# Read by scripts/check-module-deps.sh: every `#include "dir/File.hpp"` in
+# src/ produces a directory-level edge `<includer-dir> -> <dir>`, and any
+# edge not listed here fails CI. Same-directory edges (api -> api) are
+# always allowed and not listed. Files at the src/ top level (main.cpp,
+# worker_main.cpp, the generated version.hpp) are the pseudo-directory
+# `root`.
+#
+# Layering intent (violations of these three are rejected even if someone
+# adds the edge below — the gate hard-codes them):
+#   * utils/ is the bottom: it may include nothing outside utils/.
+#   * core/Core.hpp is the composition root: only the binary entry points
+#     (root), api/HealthController.hpp and its own body file core/Core.cpp
+#     may include it. Everything else
+#     that needs a module switch or the shutdown flag includes the tiny
+#     core/Modules.hpp instead.
+#   * webhooks must not include email (that edge closed the
+#     email <-> jobs <-> webhooks cycle; the shared curl bootstrap lives in
+#     utils/CurlInit.hpp).
+#
+# Adding a genuinely new dependency? Add the edge here in the same PR and
+# say why in the PR description. Keep this file sorted.
+
+api -> billing
+api -> cache
+api -> core
+api -> database
+api -> domain
+api -> email
+api -> jobs
+api -> observability
+api -> repositories
+api -> security
+api -> utils
+billing -> database
+billing -> domain
+billing -> repositories
+billing -> utils
+cache -> utils
+core -> billing
+core -> cache
+core -> database
+core -> email
+core -> jobs
+core -> messaging
+core -> observability
+core -> root
+core -> security
+core -> tasks
+core -> utils
+database -> utils
+domain -> utils
+email -> domain
+email -> jobs
+email -> repositories
+email -> security
+email -> utils
+jobs -> cache
+jobs -> database
+jobs -> email
+jobs -> observability
+jobs -> utils
+jobs -> webhooks
+observability -> utils
+repositories -> database
+repositories -> domain
+repositories -> utils
+root -> api
+root -> cache
+root -> core
+root -> database
+root -> domain
+root -> email
+root -> jobs
+root -> observability
+root -> repositories
+root -> security
+root -> utils
+security -> cache
+security -> database
+security -> utils
+webhooks -> jobs
+webhooks -> utils

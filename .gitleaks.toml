@@ -1,0 +1,48 @@
+# Gitleaks config.
+#
+# [extend] useDefault IS LOAD-BEARING. Gitleaks v8 REPLACES its embedded
+# ruleset with a repo-root config instead of merging into it, so a file that
+# carries only an [allowlist] table scans with ZERO rules — both consumers
+# (the CLI run in .github/workflows/ci.yml and the pre-commit hook in
+# .pre-commit-config.yaml, neither of which passes extra rules) then report
+# "no leaks found" for anything at all. That is exactly how this repo scanned
+# for months (downstream bump: tarassov.me 3ff72fb / H3).
+[extend]
+useDefault = true
+
+# ── Allowlist ────────────────────────────────────────────────────────────────
+# Scoped by VALUE, not by path. The global allowlist ORs `paths` and
+# `regexes`, so a path entry blinds that file entirely — a real key pasted
+# into it later would ride through. The regexes below cover the fake
+# placeholders the default ruleset flags in this repo's history.
+#
+# Deliberately NOT excluded here: helm/*/values-prod.yaml. Those overlays are
+# gitignored and have never been committed, and the only two consumers of this
+# file scan git content (staged diff / full history) — in both, a hit means a
+# real prod credential is about to land or already has. Excluding them would
+# blind exactly the file class documented to hold real db/redis/jwt secrets.
+# For a work-tree scan that would otherwise trip on the local overlays use the
+# sibling config: gitleaks detect --no-git --config .gitleaks.worktree.toml
+[allowlist]
+description = "Known non-secret placeholders (docs + test fixtures)"
+regexes = [
+  # README quickstart: curl -H 'Authorization: Bearer dev-secret-123'.
+  # A documented dev bearer token; still in history.
+  '''dev-secret-123''',
+  # tests/e2e/test_http_e2e.cpp kSecret — the >=32-char dummy the Auth boot
+  # guard demands; it authenticates nothing.
+  '''e2e-test-jwt-secret-0123456789-abcdef''',
+  # The test/placeholder secret family: the retired helm values.yaml
+  # test-jwt-secret-change-me-… defaults (still in history), the
+  # test-jwt-secret-for-auth-flow-padding fixtures, content-module preview
+  # fixtures. VALUE-scoped: nothing starting "test-…secret-" is ever real.
+  '''test-(?:jwt-|preview-)?secret-[0-9a-zA-Z-]{4,}''',
+  '''test-(?:db|redis)-pass-change-me''',
+  # helm/cpp-env/values-ci.yaml render fixtures (never deployed).
+  '''ci-(?:jwt-secret|db-pass|redis-pass)[0-9a-z-]*''',
+]
+paths = [
+  # Local dev artifact, gitignored and never committed — allowlisted so a
+  # stray work-tree scan doesn't trip on it.
+  '''docker/\.jwt-dev-secret''',
+]

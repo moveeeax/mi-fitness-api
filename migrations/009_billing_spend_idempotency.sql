@@ -1,0 +1,22 @@
+-- Migration 009: billing spend idempotency — per-reference uniqueness for
+-- kind='spend' ledger rows.
+--
+-- Applied in numeric order on boot. The MigrationRunner wraps this file in ONE
+-- transaction under an advisory lock — do NOT add BEGIN/COMMIT. Idempotent DDL.
+--
+-- Migration 007 declared kind='spend' in the wallet_entries kind comment but
+-- shipped no writer for it — Billing::spend() (src/billing/Wallet.hpp) is that
+-- writer, and this index is its idempotency key: `reference` carries the
+-- caller-chosen spend reference (an order id, a job id — whatever the fork's
+-- charging flow uses to name ONE debit), so a retried/redelivered spend with
+-- the same reference can never post twice. Same shape and rationale as 007's
+-- idx_wallet_entries_refund_ref for kind='refund'.
+--
+-- Partial (not a plain UNIQUE on `reference`) because topup/adjustment rows
+-- share the '' default and must not collide with each other or with spends.
+-- An EMPTY spend reference is refused in C++ (Billing::spend throws
+-- MissingSpendReference before writing anything), so the '' case never
+-- reaches this index; there is deliberately no ''-exclusion here — if a
+-- writer ever bypassed the C++ guard, two ''-reference spends colliding is
+-- the correct outcome, not a gap.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_entries_spend_ref ON wallet_entries (reference) WHERE kind = 'spend';

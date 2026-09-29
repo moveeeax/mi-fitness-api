@@ -1,0 +1,8 @@
+Invoice INV-2026-0042
+
+Customer: Ada Lovelace
+Issued: 2026-08-21
+Total due: 1 234,56
+Notes: Payment within 14 days
+
+Thank you for your business!

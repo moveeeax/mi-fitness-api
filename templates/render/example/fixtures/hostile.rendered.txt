@@ -1,0 +1,8 @@
+Invoice INV-2026-0666
+
+Customer: {{ malicious }} #let x = panic() \begin{evil}
+Issued: 2026-08-21
+Total due: 666,00
+Notes: else endfor {% raw %} {# comment #}
+
+Thank you for your business!
