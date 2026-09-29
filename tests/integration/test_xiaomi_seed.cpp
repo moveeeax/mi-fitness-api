@@ -16,7 +16,6 @@
 #include "database/Database.hpp"
 #include "repositories/CredentialsRepository.hpp"
 #include "test_helpers.hpp"
-#include "xiaomi/Service.hpp"
 
 namespace {
 
@@ -49,7 +48,7 @@ protected:
 }  // namespace
 
 TEST_F(XiaomiSeedTest, SeedsEmptyTableFromConfig) {
-    EXPECT_TRUE(Xiaomi::Service::seed_credentials_if_missing());
+    EXPECT_TRUE(Repositories::seed_xiaomi_credentials_if_missing());
 
     const auto loaded = repo().load();
     ASSERT_TRUE(loaded.has_value());
@@ -63,13 +62,13 @@ TEST_F(XiaomiSeedTest, SeedsEmptyTableFromConfig) {
 TEST_F(XiaomiSeedTest, DoesNotOverwriteARotatedToken) {
     repo().store({"1234567890", std::string(347, 'R'), "cn"});
 
-    EXPECT_FALSE(Xiaomi::Service::seed_credentials_if_missing());
+    EXPECT_FALSE(Repositories::seed_xiaomi_credentials_if_missing());
     EXPECT_EQ(repo().load()->pass_token, std::string(347, 'R'));
 }
 
 TEST_F(XiaomiSeedTest, SeedIsIdempotent) {
-    EXPECT_TRUE(Xiaomi::Service::seed_credentials_if_missing());
-    EXPECT_FALSE(Xiaomi::Service::seed_credentials_if_missing());
+    EXPECT_TRUE(Repositories::seed_xiaomi_credentials_if_missing());
+    EXPECT_FALSE(Repositories::seed_xiaomi_credentials_if_missing());
     EXPECT_TRUE(repo().load().has_value());
 }
 
@@ -92,6 +91,6 @@ protected:
 TEST_F(XiaomiReseedTest, ReseedOverwritesTheStoredToken) {
     repo().store({"1234567890", std::string(347, 'R'), "cn"});
 
-    EXPECT_TRUE(Xiaomi::Service::seed_credentials_if_missing());
+    EXPECT_TRUE(Repositories::seed_xiaomi_credentials_if_missing());
     EXPECT_EQ(repo().load()->pass_token, std::string(347, 'S'));
 }

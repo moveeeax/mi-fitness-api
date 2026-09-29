@@ -28,6 +28,7 @@
 #include "database/Migrations.hpp"
 #include "domain/Role.hpp"
 #include "domain/User.hpp"
+#include "repositories/CredentialsRepository.hpp"
 #include "repositories/RoleRepository.hpp"
 #include "repositories/UserRepository.hpp"
 #include "security/Password.hpp"
@@ -256,6 +257,9 @@ int run_seed_fake(const std::string& config_file, const std::string& count_arg) 
 // Boot the HTTP server and block until a shutdown signal drains it.
 int run_server(const std::string& config_file) {
     Core::initialize(config_file);
+    // Первый под в кластере сеет учётные данные Xiaomi из Secret; ротированный
+    // токен в базе этот вызов не перетирает.
+    Repositories::seed_xiaomi_credentials_if_missing();
     auto& config = Config::get();
 
     std::string host = config.get<std::string>("server.host", "SERVER_HOST", "0.0.0.0");
