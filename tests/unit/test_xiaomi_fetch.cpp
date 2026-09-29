@@ -118,6 +118,41 @@ TEST(XiaomiFetch, RequestCarriesAllSignatureFields) {
     EXPECT_EQ(request.body.find("start_time"), std::string::npos);
 }
 
+// Находка обзора 3: Python принимает has_more числом (truthiness), а
+// несовпадение формы конверта обязано быть ошибкой протокола, а не голым
+// исключением nlohmann вне таксономии ретраев.
+TEST(XiaomiFetch, NumericHasMoreKeepsPaginating) {
+    FakeHttpTransport transport;
+    transport.reply_login();
+    transport.reply_encrypted(R"({"code":0,"result":{"data_list":[{"a":1}],"has_more":1,"next_key":"k1"}})");
+    transport.reply_encrypted(R"({"code":0,"result":{"data_list":[{"a":2}],"has_more":0,"next_key":null}})");
+    Xiaomi::CloudClient client(transport, seed(), [](const auto&) {});
+    client.login();
+    EXPECT_EQ(client.fetch_key("steps", "2026-09-22", "2026-09-23", std::nullopt).size(), 2u);
+}
+
+// Пустой next_key у Python завершает пагинацию как falsy. Лишний запрос с
+// пустым курсором на живом синке оборачивался бы ложной ошибкой петли.
+TEST(XiaomiFetch, EmptyNextKeyEndsPagination) {
+    FakeHttpTransport transport;
+    transport.reply_login();
+    transport.reply_encrypted(R"({"code":0,"result":{"data_list":[{"a":1}],"has_more":true,"next_key":""}})");
+    Xiaomi::CloudClient client(transport, seed(), [](const auto&) {});
+    client.login();
+    const auto items = client.fetch_key("steps", "2026-09-22", "2026-09-23", std::nullopt);
+    EXPECT_EQ(items.size(), 1u);
+    EXPECT_EQ(transport.requests().size(), 3u);  // логин: два, данные: один
+}
+
+TEST(XiaomiFetch, NonObjectResultIsAProtocolError) {
+    FakeHttpTransport transport;
+    transport.reply_login();
+    transport.reply_encrypted(R"({"code":0,"result":[1,2,3]})");
+    Xiaomi::CloudClient client(transport, seed(), [](const auto&) {});
+    client.login();
+    EXPECT_THROW(client.fetch_key("steps", "2026-09-22", "2026-09-22", std::nullopt), Xiaomi::MiFitnessProtocolError);
+}
+
 // Ненулевой code это отказ сервера, а не пустой результат.
 TEST(XiaomiFetch, NonZeroCodeIsAProtocolError) {
     FakeHttpTransport transport;

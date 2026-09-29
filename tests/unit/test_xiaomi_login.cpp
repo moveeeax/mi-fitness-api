@@ -159,6 +159,23 @@ TEST(XiaomiLogin, EveryRequestCarriesAUserAgent) {
     }
 }
 
+// Находка обзора 1: транзиентный 5xx от account.xiaomi.com не должен
+// выглядеть мёртвыми учётными данными — auth-отказ очередью не ретраится
+// и шлёт владельца пересевать живой токен.
+TEST(XiaomiLogin, LoginHttp5xxIsAProtocolError) {
+    FakeHttpTransport transport;
+    transport.reply({502, "<html>bad gateway</html>", {}});
+    Xiaomi::CloudClient client(transport, seed(), [](const auto&) {});
+    EXPECT_THROW(client.login(), Xiaomi::MiFitnessProtocolError);
+}
+
+TEST(XiaomiLogin, LoginHttp401IsAnAuthError) {
+    FakeHttpTransport transport;
+    transport.reply({401, "", {}});
+    Xiaomi::CloudClient client(transport, seed(), [](const auto&) {});
+    EXPECT_THROW(client.login(), Xiaomi::MiFitnessAuthError);
+}
+
 TEST(XiaomiLogin, ErrorTextCarriesNoSecrets) {
     FakeHttpTransport transport;
     transport.reply({200, std::string("&&&START&&&") + R"({"passToken":"SUPERSECRET","userId":1})", {}});
