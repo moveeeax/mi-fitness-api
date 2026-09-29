@@ -463,9 +463,10 @@ backup:
     limits: { cpu: 500m, memory: 256Mi }
 
 # ---------------------------------------------------------------
-# Extra envFrom sources for the MAIN container only (migrate init container
-# never sees them). The escape hatch for app-specific secrets the chart does
-# not know about — e.g. the Xiaomi credential seed. Rendered verbatim.
+# Extra envFrom sources for BOTH the main container and the migrate init
+# container: DATABASE_PASSWORD rides in the same app Secret, and migrations
+# need it too. The escape hatch for app-specific secrets the chart does not
+# know about — e.g. the Xiaomi credential seed. Rendered verbatim.
 # ---------------------------------------------------------------
 extraEnvFrom: []
 #  - secretRef:
