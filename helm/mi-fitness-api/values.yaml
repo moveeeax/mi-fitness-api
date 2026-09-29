@@ -461,3 +461,12 @@ backup:
   resources:
     requests: { cpu: 100m, memory: 128Mi }
     limits: { cpu: 500m, memory: 256Mi }
+
+# ---------------------------------------------------------------
+# Extra envFrom sources for the MAIN container only (migrate init container
+# never sees them). The escape hatch for app-specific secrets the chart does
+# not know about — e.g. the Xiaomi credential seed. Rendered verbatim.
+# ---------------------------------------------------------------
+extraEnvFrom: []
+#  - secretRef:
+#      name: mi-fitness-app

@@ -1,0 +1,53 @@
+# Боевые значения mi-fitness-api в кластере talos-nbg1-tarassov-me,
+# namespace mi-fitness-api. Секреты сюда не пишутся: всё чувствительное
+# живёт в Secret mi-fitness-app и приходит через extraEnvFrom.
+
+image:
+  repository: ghcr.io/moveeeax/mi-fitness-api
+  tag: "1.7.0"
+
+replicaCount: 1
+
+extraEnvFrom:
+  - secretRef:
+      name: mi-fitness-app
+
+externalDatabase:
+  host: postgresql-rw.db.svc.cluster.local
+  port: 5432
+  name: mi_fitness
+  user: mi-fitness
+  # Пароль приходит переменной DATABASE_PASSWORD из mi-fitness-app.
+  password: ""
+  poolSize: 5
+  replicaHost: postgresql-ro.db.svc.cluster.local
+  migrationsEnabled: false
+
+migrations:
+  runAsInitContainer: true
+
+externalRedis:
+  url: "tcp://redis.db.svc.cluster.local:6379"
+  # Отдельный логический индекс: Redis общий, ключи не должны пересекаться
+  # с другими приложениями кластера.
+  db: 3
+
+ingress:
+  enabled: true
+  className: nginx
+  certManager:
+    clusterIssuer: letsencrypt-prod
+  hosts:
+    - host: mi-fit.tarassov.me
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts: [mi-fit.tarassov.me]
+      secretName: mi-fit-tls
+
+mail:
+  enabled: false
+
+tracing:
+  enabled: false
