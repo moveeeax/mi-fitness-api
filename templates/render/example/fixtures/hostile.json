@@ -1,0 +1,8 @@
+{
+  "invoice_no": "INV-2026-0666",
+  "customer_name": "{{ malicious }} #let x = panic() \\begin{evil}",
+  "issued_on": "2026-08-21",
+  "total_due": "666,00",
+  "note": "else endfor {% raw %} {# comment #}",
+  "kind": "sample"
+}

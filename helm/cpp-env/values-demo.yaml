@@ -1,0 +1,142 @@
+# ═══════════════════════════════════════════════════════════════
+# Public DEMO preset for the cpp-env umbrella → *.demo.tarassov.me
+#
+# Internet-facing throwaway env: anyone can register, and the inbox (Mailpit)
+# is public on purpose so visitors can walk the full confirm/reset flow.
+# NO real data lives here, and it is periodically reset.
+#
+# Topology (2026-08-21): the demo runs on the cluster's SHARED infra instead
+# of per-namespace placeholders —
+#   Postgres  the CNPG cluster in ns `db` (postgresql-rw/-ro), database
+#             `mi-fitness-api-demo` owned by role `mi-fitness-api-demo`
+#             → postgres.enabled=false, nothing renders in-namespace;
+#   Redis     the Sentinel-managed shared Redis in ns `db`, LOGICAL DB 1 —
+#             REDIS_DB isolation (needs images ≥ 1.5.4) keeps the demo's
+#             queue/rate-limit/session keys apart from the other tenants
+#             (db 0 is taken by ns `www`)
+#             → redis.enabled=false;
+#   Traces    the cluster-wide Tempo in ns `monitoring`, viewed in Grafana
+#             (grafana.tarassov.me) → jaeger.enabled=false, the admin UI's
+#             "Open trace" deep-links into Grafana Explore.
+#
+# Deploy with scripts/deploy-demo.sh — it bootstraps the shared-PG role/db,
+# reads the shared Redis password from ns `db`, generates the app secrets and
+# passes everything via --set, so nothing sensitive is committed (and
+# check-helm-render.sh asserts this file renders no non-empty credential).
+#
+#   ./scripts/deploy-demo.sh
+#
+# DNS is automatic: external-dns publishes A records for *.demo.tarassov.me →
+# the ingress IP set in ingress.externalDnsTarget. TLS is cert-manager
+# (letsencrypt-prod). No manual registrar step.
+# ═══════════════════════════════════════════════════════════════
+
+env: demo
+baseDomain: tarassov.me
+
+ingress:
+  className: nginx
+  clusterIssuer: letsencrypt-prod
+  # Public ingress IP — external-dns creates the *.demo.tarassov.me A records.
+  externalDnsTarget: "YOUR_INGRESS_IP"
+
+# Secrets are injected at deploy time by scripts/deploy-demo.sh (--set), never
+# committed. Left EMPTY (the chart-wide convention): a deploy that skips the
+# script fail-closes at boot instead of running on a committed placeholder.
+credentials:
+  dbPassword: ""
+  redisPassword: ""
+  jwtSecret: ""
+
+# Shared infra lives in other namespaces (see the header) — render none of the
+# in-namespace placeholders.
+postgres:
+  enabled: false
+redis:
+  enabled: false
+kafka:
+  enabled: false
+jaeger:
+  enabled: false
+mailpit:
+  enabled: true
+  ingress:
+    enabled: true       # mail.demo — public inbox so visitors see confirm/reset mail (demo only)
+
+# Periodically reset the public demo back to a clean seeded state.
+demoReset:
+  enabled: true
+  schedule: "0 */6 * * *"   # every 6 hours
+
+mi-fitness-api:
+  image:
+    tag: "1.6.0"      # pinned known-good amd64 build (unprefixed — release.yml strips the v); bump when a newer one ships
+  externalKafka:
+    enabled: false
+  externalDatabase:
+    host: postgresql-rw.db.svc.cluster.local
+    name: mi-fitness-api-demo
+    user: mi-fitness-api-demo
+    replicaHost: postgresql-ro.db.svc.cluster.local
+    password: ""            # set by deploy-demo.sh
+  externalRedis:
+    url: "tcp://redis.db.svc.cluster.local:6379"
+    useSentinel: true
+    masterName: mymaster
+    sentinelNodes: "redis-node-0.redis-headless.db.svc.cluster.local:26379,redis-node-1.redis-headless.db.svc.cluster.local:26379,redis-node-2.redis-headless.db.svc.cluster.local:26379"
+    # Logical DB 1 — the shared instance's db 0 belongs to ns `www`. MUST match
+    # mi-fitness-api-worker below (api enqueues, worker BRPOPs the same logical DB).
+    db: 1
+    password: ""            # set by deploy-demo.sh (read from ns db secret)
+  # Public origin for account-email links AND the sitemap/post URLs the
+  # content module emits — without it the sitemap advertises the chart
+  # default app.example.com.
+  app:
+    baseUrl: "https://app.demo.tarassov.me"
+    name: "C++ REST Template — Demo"
+  tracing:
+    enabled: true
+    otlpEndpoint: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
+  auth:
+    mode: jwt
+    jwtSecret: ""           # set by deploy-demo.sh
+    cookies:
+      enabled: true
+      secure: true
+      samesite: Lax
+
+mi-fitness-api-worker:
+  image:
+    tag: "1.6.0"
+  externalDatabase:
+    host: postgresql-rw.db.svc.cluster.local
+    name: mi-fitness-api-demo
+    user: mi-fitness-api-demo
+    replicaHost: postgresql-ro.db.svc.cluster.local
+    password: ""            # set by deploy-demo.sh
+  externalRedis:
+    url: "tcp://redis.db.svc.cluster.local:6379"
+    useSentinel: true
+    masterName: mymaster
+    sentinelNodes: "redis-node-0.redis-headless.db.svc.cluster.local:26379,redis-node-1.redis-headless.db.svc.cluster.local:26379,redis-node-2.redis-headless.db.svc.cluster.local:26379"
+    db: 1                   # == mi-fitness-api.externalRedis.db
+    password: ""            # set by deploy-demo.sh (read from ns db secret)
+  tracing:
+    enabled: true
+    otlpEndpoint: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
+  auth:
+    jwtSecret: ""           # set by deploy-demo.sh
+  app:
+    baseUrl: "https://app.demo.tarassov.me"
+    name: "C++ REST Template — Demo"
+  mail:
+    from: "noreply@demo.tarassov.me"
+    fromName: "C++ REST Template Demo"
+    subjectPrefix: "[demo] "
+
+cpp-frontend:
+  image:
+    tag: "1.6.0"
+  # Admin "Open trace" deep-links into the cluster Grafana (Tempo datasource
+  # uid `tempo`) — traces are owner-visible behind Grafana auth, not public.
+  traceUi: "https://grafana.tarassov.me/explore?schemaVersion=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22query%22%3A%22{traceId}%22%2C%22queryType%22%3A%22traceql%22%7D%5D%7D%7D&orgId=1"

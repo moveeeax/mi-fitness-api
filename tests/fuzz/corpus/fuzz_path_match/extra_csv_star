@@ -1,0 +1,2 @@
+/api/v1/webhooks/*, /api/v1/feed
+/api/v1/webhooks/paypal

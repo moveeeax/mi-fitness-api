@@ -6,7 +6,7 @@
 
 **Architecture:** Три изолированных модуля под `src/xiaomi/`. `Crypto` это чистые функции без сети и состояния. `HttpTransport` это шов: интерфейс с реализацией на libcurl и подделкой в тестах, поэтому весь клиент проверяется без сети. `CloudClient` знает HTTP и подпись, но не знает ни домена, ни базы. Токен живёт в Postgres зашифрованным, ключ приходит из Secret.
 
-**Tech Stack:** C++20, Drogon, libpqxx, libsodium, libcurl, OpenSSL, nlohmann-json, gtest. Шаблон `cpp-rapid-rest-template` v1.4.0.
+**Tech Stack:** C++20, Drogon, libpqxx, libsodium, libcurl, OpenSSL, nlohmann-json, gtest. Шаблон `cpp-rapid-rest-template` v1.6.0 (версия из CMakeLists и CHANGELOG; в vcpkg.json стоит 1.4.0, это отдельный счётчик манифеста).
 
 **Spec:** `docs/superpowers/specs/2026-09-29-mi-fitness-api-cpp-design.md`
 

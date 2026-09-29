@@ -1,0 +1,905 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# CI only reads the repo; release/builder-cache workflows declare their own
+# write scopes explicitly. pull-requests: read exists solely for the
+# self-scoping steps (`gh api .../pulls/N/files` lists the PR's changed
+# files) — still no write scope anywhere.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    # End-to-end: builds the Docker builder stage (which compiles everything
+    # with sanitizers and links the test binary), then runs the full gtest
+    # suite against ephemeral Postgres + Redis containers via the `test`
+    # compose profile — the same thing `make test` does locally.
+    # 90, not 60: after a vcpkg baseline bump BOTH cache layers (gha + GHCR)
+    # are cold and the ~35-min dependency world rebuilds before a single test
+    # runs. A job killed before it exports the gha cache leaves the NEXT run
+    # cold too — the timeout must let a cold build finish once.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2  # HEAD^ for the push-event scope diff
+
+      - name: Scope — does the diff touch anything this job builds?
+        # Self-scoping, NOT a workflow-level `paths:` filter: the job always
+        # STARTS (required-check semantics stay honest — a skipped required
+        # job reports success while checking nothing), computes the diff
+        # itself, and exits green in seconds when none of its inputs changed.
+        # Fail-open: any trouble computing the diff ⇒ run the job in full.
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEVANT: '^(src/|tests/|migrations/|docker/|config/|templates/|third_party/|scripts/|CMakeLists\.txt$|CMakePresets\.json$|vcpkg\.json$|Makefile$|\.github/workflows/ci\.yml$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+              --jq '.[].filename') || changed=""
+          else
+            # push: first-parent diff of the pushed head (checkout fetched
+            # depth 2). HEAD^ is absent on a root commit → fail open below.
+            changed=$(git diff --name-only HEAD^..HEAD 2>/dev/null) || changed=""
+          fi
+          if [ -z "$changed" ]; then
+            echo "could not determine the changed files — failing open, job runs in full"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE "$RELEVANT"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "paths untouched — verified nothing this job covers is affected; exiting green"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.scope.outputs.relevant == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      - name: Expose Actions cache env for sccache
+        # Exports ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN so sccache (inside
+        # docker builds and `docker run` compile steps) can talk to the Actions
+        # cache API. The Dockerfile receives them as BuildKit secrets — never
+        # ARGs — so layer cache keys and image history stay credential-free.
+        if: steps.scope.outputs.relevant == 'true'
+        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
+
+      - name: Build builder image (cache warm)
+        if: steps.scope.outputs.relevant == 'true'
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: builder
+          push: false
+          load: true
+          tags: mi-fitness-api-template:builder
+          build-args: ENABLE_WERROR=ON
+          secrets: |
+            actions_results_url=${{ env.ACTIONS_RESULTS_URL }}
+            actions_runtime_token=${{ env.ACTIONS_RUNTIME_TOKEN }}
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
+          cache-to: type=gha,mode=max
+
+      - name: Run full test suite
+        # `make test` builds the test-runner stage with
+        # --cache-from mi-fitness-api:builder-latest. Alias the builder we just loaded
+        # under that tag so the compose build is a cache hit instead of a full
+        # recompile.
+        #
+        # CI_REQUIRE_INFRA: without it a mis-wired Postgres/Redis sidecar turns
+        # all 160+ integration/api cases into SKIPs and the job reports green
+        # while checking nothing (the guard existed in test_helpers.hpp but was
+        # exported nowhere — downstream bump: tarassov.me 33e108e).
+        # docker-compose.yml forwards it into the test-runner container.
+        if: steps.scope.outputs.relevant == 'true'
+        env:
+          CI_REQUIRE_INFRA: "1"
+        run: |
+          docker tag mi-fitness-api-template:builder mi-fitness-api:builder-latest
+          make test
+
+      - name: Dump logs on failure
+        if: failure() && steps.scope.outputs.relevant == 'true'
+        run: |
+          docker compose -f docker/docker-compose.yml --env-file docker/.env \
+            --profile test logs test-runner || true
+
+  lint-format:
+    runs-on: ubuntu-latest
+    # Pure text lint — doesn't need Docker, runs fast, gates style issues
+    # before the heavier build job finishes.
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install clang-format 17
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-17
+          sudo ln -sf /usr/bin/clang-format-17 /usr/local/bin/clang-format
+
+      - name: Check C++ formatting
+        run: |
+          mapfile -t files < <(find src tests -type f \
+            \( -name '*.hpp' -o -name '*.cpp' -o -name '*.h' \))
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No C++ sources to check"; exit 0
+          fi
+          clang-format --dry-run --Werror "${files[@]}"
+
+      - name: Shellcheck (scripts)
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38  # 2.0.0
+        with:
+          scandir: ./scripts
+          severity: warning
+
+      - name: Shellcheck (docker)
+        # docker/*.sh (Postgres replica setup) lives outside ./scripts. Second
+        # invocation keeps the scandir scoping (the action only accepts one
+        # scandir).
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38  # 2.0.0
+        with:
+          scandir: ./docker
+          severity: warning
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    # Catch credentials before they land. We learned the hard way that a
+    # local helm/values.yaml with stage passwords can slip into git.
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0  # gitleaks needs history to scan past commits.
+      # The official gitleaks-action requires a PAID license for repos owned by
+      # an ORGANIZATION (it hard-fails with "missing gitleaks license" — a fork
+      # of this template into any org would ship a permanently red gate). The
+      # scanner itself is open source, so run the CLI directly: same rules,
+      # same .gitleaks.toml, no license and no secrets.
+      - name: Run gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            zricethezav/gitleaks:v8.21.2 detect \
+              --source=/repo --config=/repo/.gitleaks.toml \
+              --redact --verbose --exit-code 1
+
+  openapi-drift:
+    runs-on: ubuntu-latest
+    # Pure-shell check — verifies (method, path) tuples in
+    # Api::get_endpoints() match docs/openapi.yaml. Runs in seconds, gates
+    # the heavier build job from going green if the spec is stale.
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Check OpenAPI drift
+        run: ./scripts/check-openapi-drift.sh
+      - name: Check routes registered
+        run: ./scripts/check-routes-registered.sh
+      - name: Check test-bucket filter sync
+        run: ./scripts/check-test-buckets.sh
+      - name: Check version sync (CMakeLists + helm pins + appVersions vs CHANGELOG)
+        run: ./scripts/check-version-sync.sh
+      - name: Check frontend nginx configs in sync (compose vs helm)
+        run: ./scripts/check-frontend-nginx-sync.sh
+      - name: Check module dependency DAG (src/ include edges)
+        run: ./scripts/check-module-deps.sh
+      - name: Check config key sync (src reads vs config jsons, CONFIG.md, helm env lists)
+        run: ./scripts/check-config-sync.sh
+      - name: Check changelog fragment format (changelog.d/ — fragments stay optional)
+        run: ./scripts/assemble-changelog.sh --check
+
+  gate-selftest:
+    runs-on: ubuntu-latest
+    # Proves the nine gate scripts BITE: per gate, copy the subtree it reads,
+    # plant a known breakage (counted mutators; a no-op mutation is itself a
+    # failure), and require the gate to fail AND name what it found — after
+    # first PASSING the untouched copy as a control. A gate only ever run
+    # against healthy trees is indistinguishable from `exit 0` (check-test-
+    # buckets.sh once scanned only its first directory argument; a downstream
+    # gitleaks config once scanned with zero rules). SELF-scoped (never a
+    # workflow-level `paths:` filter — a path-skipped required job reports
+    # success, which is the disease this job exists to cure): the job always
+    # starts, and runs the selftest only when the diff touches where gate
+    # mutations live (scripts/, .github/workflows/, helm/). Rot insurance for
+    # everything else is .github/workflows/gates-nightly.yml — a daily
+    # unconditional run.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2  # HEAD^ for the push-event scope diff
+
+      - name: Scope — does the diff touch the gates?
+        # Same self-scoping contract as the heavy jobs: always start, exit
+        # green in seconds when untouched, fail open on any diff trouble.
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEVANT: '^(scripts/|helm/|\.github/workflows/)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+              --jq '.[].filename') || changed=""
+          else
+            # push: first-parent diff of the pushed head (checkout fetched
+            # depth 2). HEAD^ is absent on a root commit → fail open below.
+            changed=$(git diff --name-only HEAD^..HEAD 2>/dev/null) || changed=""
+          fi
+          if [ -z "$changed" ]; then
+            echo "could not determine the changed files — failing open, job runs in full"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE "$RELEVANT"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "paths untouched — verified nothing this job covers is affected; exiting green"
+          fi
+
+      - name: Install helm + yq
+        if: steps.scope.outputs.relevant == 'true'
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          sudo curl -fsSL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.6/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Gate selftest (20 planted breakages must be caught)
+        if: steps.scope.outputs.relevant == 'true'
+        run: ./scripts/check-selftest.sh
+
+  runtime-smoke:
+    runs-on: ubuntu-latest
+    # The release images (runtime / worker-runtime) were never built — let
+    # alone started — anywhere in CI: only test-runner and builder are. That is
+    # how an image without ca-certificates shipped and every SMTP STARTTLS
+    # failed in production only (downstream bump: tarassov.me 83cd86c). Build
+    # both runtime targets from cache and prove the shipped binaries load,
+    # link, and can see a CA bundle.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2  # HEAD^ for the push-event scope diff
+
+      - name: Scope — does the diff touch anything this job builds?
+        # Self-scoping, NOT a workflow-level `paths:` filter: the job always
+        # STARTS (required-check semantics stay honest — a skipped required
+        # job reports success while checking nothing), computes the diff
+        # itself, and exits green in seconds when none of its inputs changed.
+        # Fail-open: any trouble computing the diff ⇒ run the job in full.
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEVANT: '^(src/|tests/|migrations/|docker/|config/|templates/|third_party/|scripts/|CMakeLists\.txt$|CMakePresets\.json$|vcpkg\.json$|Makefile$|\.github/workflows/ci\.yml$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+              --jq '.[].filename') || changed=""
+          else
+            # push: first-parent diff of the pushed head (checkout fetched
+            # depth 2). HEAD^ is absent on a root commit → fail open below.
+            changed=$(git diff --name-only HEAD^..HEAD 2>/dev/null) || changed=""
+          fi
+          if [ -z "$changed" ]; then
+            echo "could not determine the changed files — failing open, job runs in full"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE "$RELEVANT"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "paths untouched — verified nothing this job covers is affected; exiting green"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.scope.outputs.relevant == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      - name: Expose Actions cache env for sccache
+        # Exports ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN so sccache (inside
+        # docker builds and `docker run` compile steps) can talk to the Actions
+        # cache API. The Dockerfile receives them as BuildKit secrets — never
+        # ARGs — so layer cache keys and image history stay credential-free.
+        if: steps.scope.outputs.relevant == 'true'
+        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
+
+      - name: Build app runtime image
+        if: steps.scope.outputs.relevant == 'true'
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: runtime
+          push: false
+          load: true
+          tags: mi-fitness-api-template:runtime-ci
+          build-args: ENABLE_WERROR=ON
+          secrets: |
+            actions_results_url=${{ env.ACTIONS_RESULTS_URL }}
+            actions_runtime_token=${{ env.ACTIONS_RUNTIME_TOKEN }}
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
+          cache-to: type=gha,mode=max
+
+      - name: Build worker runtime image
+        if: steps.scope.outputs.relevant == 'true'
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: worker-runtime
+          push: false
+          load: true
+          tags: mi-fitness-api-template-worker:runtime-ci
+          build-args: ENABLE_WERROR=ON
+          secrets: |
+            actions_results_url=${{ env.ACTIONS_RESULTS_URL }}
+            actions_runtime_token=${{ env.ACTIONS_RUNTIME_TOKEN }}
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
+          cache-to: type=gha,mode=max
+
+      - name: Runtime images resolve every shared library
+        # ldd exits 0 even when a DT_NEEDED entry is missing, so grep the
+        # output. Also assert the CA bundle is present: without it every
+        # outbound TLS (SMTP STARTTLS, S3) fails at runtime only.
+        if: steps.scope.outputs.relevant == 'true'
+        run: |
+          check_image() {
+            image="$1"; binary="$2"
+            echo "── $image (/app/$binary)"
+            docker run --rm --entrypoint /bin/sh "$image" -c "ldd /app/$binary" | tee ldd.txt
+            if grep -q 'not found' ldd.txt; then
+              echo "::error::$image: unresolved shared library — runtime-base is missing a package"
+              exit 1
+            fi
+            docker run --rm --entrypoint /bin/sh "$image" -c \
+              'test -s /etc/ssl/certs/ca-certificates.crt' || {
+              echo "::error::$image: no CA bundle — outbound TLS (SMTP/S3) would fail"
+              exit 1
+            }
+          }
+          check_image mi-fitness-api-template:runtime-ci mi_fitness_api
+          check_image mi-fitness-api-template-worker:runtime-ci mi_fitness_api_worker
+
+      - name: API runtime binary starts
+        # --print-routes returns before any Core init, so no Postgres/Redis is
+        # needed and the check still proves the shipped binary loads and runs.
+        if: steps.scope.outputs.relevant == 'true'
+        run: |
+          docker run --rm mi-fitness-api-template:runtime-ci --print-routes | tee routes.txt
+          grep -q '/healthz' routes.txt
+
+      - name: Worker runtime binary starts
+        # The worker takes no no-op flag: point it at a config that isn't there
+        # so it exits non-zero AFTER the startup banner. The banner is what we
+        # assert on — reaching it means the dynamic loader and the static
+        # initialisers ran inside the runtime image.
+        if: steps.scope.outputs.relevant == 'true'
+        run: |
+          out="$(timeout 120 docker run --rm mi-fitness-api-template-worker:runtime-ci config/no-such-config.json 2>&1 || true)"
+          printf '%s\n' "$out"
+          printf '%s\n' "$out" | grep -q 'C++ API Worker Starting'
+
+  helm-charts:
+    runs-on: ubuntu-latest
+    # Render the cpp-env umbrella with CI values and assert deploy-path
+    # invariants (ingress<->service port match, MAIL_VIA_JOBS injected,
+    # baseDomain expanded, no null ports). No cluster — pure template smoke
+    # test. Catches the helm bug class that compile + unit tests cannot.
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install helm + yq
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          sudo curl -fsSL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.6/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Validate helm render
+        run: ./scripts/check-helm-render.sh
+
+  frontend:
+    runs-on: ubuntu-latest
+    # Frontend gate — typecheck + lint + production build. Regenerates
+    # schema.gen.ts from docs/openapi.yaml and fails if the committed copy
+    # is stale (see the "schema.gen.ts up to date" step).
+    timeout-minutes: 10
+    defaults:
+      run: { working-directory: frontend }
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2  # HEAD^ for the push-event scope diff
+
+      - name: Scope — does the diff touch the frontend?
+        # Self-scoping, NOT a workflow-level `paths:` filter: the job always
+        # STARTS (required-check semantics stay honest — a skipped required
+        # job reports success while checking nothing), computes the diff
+        # itself, and exits green in seconds when none of its inputs changed.
+        # docs/openapi.yaml is an input: schema.gen.ts is generated from it.
+        # Fail-open: any trouble computing the diff ⇒ run the job in full.
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEVANT: '^(frontend/|docs/openapi\.yaml$|\.github/workflows/ci\.yml$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+              --jq '.[].filename') || changed=""
+          else
+            # push: first-parent diff of the pushed head (checkout fetched
+            # depth 2). HEAD^ is absent on a root commit → fail open below.
+            changed=$(git diff --name-only HEAD^..HEAD 2>/dev/null) || changed=""
+          fi
+          if [ -z "$changed" ]; then
+            echo "could not determine the changed files — failing open, job runs in full"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE "$RELEVANT"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "paths untouched — verified nothing this job covers is affected; exiting green"
+          fi
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: steps.scope.outputs.relevant == 'true'
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        if: steps.scope.outputs.relevant == 'true'
+        run: npm ci --no-audit --no-fund
+      - name: Regenerate OpenAPI types
+        if: steps.scope.outputs.relevant == 'true'
+        run: npm run gen:api
+      - name: schema.gen.ts up to date with docs/openapi.yaml
+        # gen:api just rewrote schema.gen.ts from the spec. If the committed
+        # copy differs, someone changed docs/openapi.yaml without running
+        # `make frontend-gen-api` — fail so the stale file can't ride green.
+        if: steps.scope.outputs.relevant == 'true'
+        run: git diff --exit-code -- src/lib/api/schema.gen.ts
+      - name: Typecheck
+        if: steps.scope.outputs.relevant == 'true'
+        run: npm run typecheck
+      - name: Unit tests
+        if: steps.scope.outputs.relevant == 'true'
+        run: npm test
+      - name: Lint
+        if: steps.scope.outputs.relevant == 'true'
+        run: npm run lint  # flat config, zero-warning baseline
+      - name: Production build
+        if: steps.scope.outputs.relevant == 'true'
+        run: npm run build
+
+  clang-tidy:
+    runs-on: ubuntu-latest
+    # Structural and API-usage lint. Uses the builder image for
+    # compile_commands.json so the analysis sees the real include paths
+    # vcpkg resolved. Best-effort: warnings don't gate yet, the .clang-tidy
+    # baseline is still being tightened.
+    # 90, not 60: cold-cache runs rebuild the vcpkg world (~35 min) before
+    # analysis starts — see build-and-test.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2  # HEAD^ for the push-event scope diff
+
+      - name: Scope — does the diff touch anything this job builds?
+        # Self-scoping, NOT a workflow-level `paths:` filter: the job always
+        # STARTS (required-check semantics stay honest — a skipped required
+        # job reports success while checking nothing), computes the diff
+        # itself, and exits green in seconds when none of its inputs changed.
+        # Fail-open: any trouble computing the diff ⇒ run the job in full.
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEVANT: '^(src/|tests/|migrations/|docker/|config/|templates/|third_party/|scripts/|CMakeLists\.txt$|CMakePresets\.json$|vcpkg\.json$|Makefile$|\.github/workflows/ci\.yml$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+              --jq '.[].filename') || changed=""
+          else
+            # push: first-parent diff of the pushed head (checkout fetched
+            # depth 2). HEAD^ is absent on a root commit → fail open below.
+            changed=$(git diff --name-only HEAD^..HEAD 2>/dev/null) || changed=""
+          fi
+          if [ -z "$changed" ]; then
+            echo "could not determine the changed files — failing open, job runs in full"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE "$RELEVANT"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "paths untouched — verified nothing this job covers is affected; exiting green"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.scope.outputs.relevant == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      - name: Expose Actions cache env for sccache
+        # Exports ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN so sccache (inside
+        # docker builds and `docker run` compile steps) can talk to the Actions
+        # cache API. The Dockerfile receives them as BuildKit secrets — never
+        # ARGs — so layer cache keys and image history stay credential-free.
+        if: steps.scope.outputs.relevant == 'true'
+        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
+
+      - name: Build builder image
+        if: steps.scope.outputs.relevant == 'true'
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: builder
+          push: false
+          load: true
+          tags: mi-fitness-api-template:builder
+          build-args: ENABLE_WERROR=ON
+          secrets: |
+            actions_results_url=${{ env.ACTIONS_RESULTS_URL }}
+            actions_runtime_token=${{ env.ACTIONS_RUNTIME_TOKEN }}
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
+          cache-to: type=gha,mode=max
+
+      - name: Run clang-tidy inside builder
+        # continue-on-error: ratchet — flip to false once the baseline is
+        # clean. It is NOT clean: baseline 364 unique warnings in src/
+        # (981 raw lines — headers repeat across TUs) as of 2026-08-23,
+        # master run 32594916143; ~70% is readability-identifier-naming.
+        # Checks come from .clang-tidy in the repo root (mounted read-only):
+        # bugprone-*, performance-*, portability-*, clang-analyzer-*.
+        if: steps.scope.outputs.relevant == 'true'
+        continue-on-error: true
+        run: |
+          docker run --rm \
+              -v "$PWD":/src \
+              -v "$PWD/.clang-tidy":/app/.clang-tidy:ro \
+              --entrypoint /bin/bash \
+              mi-fitness-api-template:builder -c "
+                  apt-get update -qq && apt-get install -y -qq clang-tidy >/dev/null && \
+                  run-clang-tidy -p /app/build -quiet -header-filter='src/.*' /app/src/ \
+                      | tee /src/clang-tidy.log
+              "
+
+      - name: Upload clang-tidy log
+        if: always() && steps.scope.outputs.relevant == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: clang-tidy-log
+          path: clang-tidy.log
+          if-no-files-found: ignore
+
+  sanitizers:
+    runs-on: ubuntu-latest
+    # AddressSanitizer + UndefinedBehaviorSanitizer over the unit AND
+    # integration/api buckets. Unit builds and runs first — the fast
+    # memory/UB signal survives even if the heavier integration leg dies.
+    # Integration runs against the same ephemeral test-postgres/test-redis
+    # sidecars `make test` uses (compose `test` profile), with
+    # CI_REQUIRE_INFRA=1 so a mis-wired sidecar FAILS the suites instead of
+    # turning 160+ cases into SKIPs that report green while checking nothing.
+    # History: integration was excluded because compiling its TUs under ASan
+    # OOM'd an 8 GB buildkit VM (~24/39, rpc EOF — heavy header-only bodies
+    # re-instrumented in every TU). app_core STATIC (PRs #44–#46) moved those
+    # bodies into .cpp files compiled once, which removed the blocker.
+    # 120, not 90: cold-cache runs rebuild the vcpkg world (~35 min), the
+    # sanitizer-instrumented compile is slower than the plain one, and the
+    # integration suite under ASan runs a low single-digit multiple of its
+    # plain ~2 min wall clock.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2  # HEAD^ for the push-event scope diff
+
+      - name: Scope — does the diff touch anything this job builds?
+        # Self-scoping, NOT a workflow-level `paths:` filter: the job always
+        # STARTS (required-check semantics stay honest — a skipped required
+        # job reports success while checking nothing), computes the diff
+        # itself, and exits green in seconds when none of its inputs changed.
+        # Fail-open: any trouble computing the diff ⇒ run the job in full.
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEVANT: '^(src/|tests/|migrations/|docker/|config/|templates/|third_party/|scripts/|CMakeLists\.txt$|CMakePresets\.json$|vcpkg\.json$|Makefile$|\.github/workflows/ci\.yml$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+              --jq '.[].filename') || changed=""
+          else
+            # push: first-parent diff of the pushed head (checkout fetched
+            # depth 2). HEAD^ is absent on a root commit → fail open below.
+            changed=$(git diff --name-only HEAD^..HEAD 2>/dev/null) || changed=""
+          fi
+          if [ -z "$changed" ]; then
+            echo "could not determine the changed files — failing open, job runs in full"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE "$RELEVANT"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "paths untouched — verified nothing this job covers is affected; exiting green"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.scope.outputs.relevant == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      - name: Expose Actions cache env for sccache
+        # Exports ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN so sccache (inside
+        # docker builds and `docker run` compile steps) can talk to the Actions
+        # cache API. The Dockerfile receives them as BuildKit secrets — never
+        # ARGs — so layer cache keys and image history stay credential-free.
+        if: steps.scope.outputs.relevant == 'true'
+        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
+
+      - name: Build builder image
+        if: steps.scope.outputs.relevant == 'true'
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: builder
+          push: false
+          load: true
+          tags: mi-fitness-api-template:builder
+          build-args: ENABLE_WERROR=ON
+          secrets: |
+            actions_results_url=${{ env.ACTIONS_RESULTS_URL }}
+            actions_runtime_token=${{ env.ACTIONS_RUNTIME_TOKEN }}
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
+          cache-to: type=gha,mode=max
+
+      - name: Start test Postgres + Redis (compose `test` profile)
+        # The same ephemeral sidecars `make test` uses — no volume, fresh
+        # schema (the integration suites run MigrationRunner themselves).
+        # --wait blocks on the compose healthchecks so the suite never races
+        # a still-starting Postgres.
+        if: steps.scope.outputs.relevant == 'true'
+        run: |
+          docker compose -f docker/docker-compose.yml --env-file docker/.env \
+            --profile test up -d --wait test-postgres test-redis
+
+      - name: Build & run unit + integration tests with ASan + UBSan
+        # The -e ACTIONS_* pass-through + sccache launcher lets the sanitizer
+        # recompile hit the same Actions-cache-backed sccache as the builder
+        # image build (distinct flags → distinct cache entries, no collisions).
+        # The container joins the compose network, so the `test-postgres` /
+        # `test-redis` service names resolve exactly as they do for the
+        # test-runner service. CI_REQUIRE_INFRA=1: missing infra must FAIL,
+        # not skip-and-report-green (see test_helpers.hpp).
+        # Unit first: build + run the cheap binary before the heavy one so a
+        # regression there is reported in minutes, not after the full build.
+        if: steps.scope.outputs.relevant == 'true'
+        run: |
+          NET=$(docker inspect mi_fitness_api_test_postgres \
+            --format '{{range $k, $_ := .NetworkSettings.Networks}}{{$k}}{{end}}')
+          docker run --rm \
+              --network "$NET" \
+              -e TEST_PG_HOST=test-postgres \
+              -e TEST_REDIS_HOST=test-redis \
+              -e CI_REQUIRE_INFRA=1 \
+              -e SCCACHE_GHA_ENABLED=on \
+              -e ACTIONS_CACHE_SERVICE_V2 \
+              -e ACTIONS_RESULTS_URL \
+              -e ACTIONS_RUNTIME_TOKEN \
+              --entrypoint /bin/bash \
+              mi-fitness-api-template:builder -c "
+                  set -e
+                  cd /app
+                  rm -rf build-san
+                  cmake -B build-san \
+                      -G Ninja \
+                      -DCMAKE_BUILD_TYPE=Debug \
+                      -DENABLE_SANITIZERS=ON \
+                      -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+                      -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+                      -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
+                      -DVCPKG_INSTALLED_DIR=/app/build/vcpkg_installed  # reuse the builder stage's vcpkg tree (mirrors the sanitizer-builder Dockerfile stage); avoids a full vcpkg reinstall
+                  cmake --build build-san -j\$(nproc) --target mi_fitness_api_tests_unit
+                  ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 \
+                  UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+                  ./build-san/mi_fitness_api_tests_unit \
+                      --gtest_color=yes
+                  cmake --build build-san -j\$(nproc) --target mi_fitness_api_tests_integration
+                  sccache --show-stats
+                  ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 \
+                  UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+                  ./build-san/mi_fitness_api_tests_integration \
+                      --gtest_color=yes
+              "
+
+      - name: Dump test-infra logs on failure
+        if: failure() && steps.scope.outputs.relevant == 'true'
+        run: |
+          docker compose -f docker/docker-compose.yml --env-file docker/.env \
+            --profile test logs test-postgres test-redis || true
+
+  tsan:
+    runs-on: ubuntu-latest
+    # ThreadSanitizer over the unit AND integration/api buckets. The codebase
+    # leans on inline singletons + atomics (ADR 0004) — exactly where races
+    # hide, and the integration bucket is where the connection pools, the job
+    # queue and the cache actually run multi-threaded against real
+    # Postgres/Redis. Kept apart from the ASan job: TSan can't share a
+    # process with ASan. Same infra wiring as the sanitizers job (compose
+    # `test` profile sidecars + CI_REQUIRE_INFRA=1 — skips must not report
+    # green), unit first for the fast signal. Unblocked by app_core STATIC
+    # (PRs #44–#46) — see the sanitizers job header for the OOM history.
+    # No suppression file: if TSan reports races inside redis++/pqxx
+    # internals, read them first — only add a documented, pinpoint tsan.supp
+    # for provably-third-party noise, never for our own code.
+    # 120, not 90: same cold-vcpkg math as the sanitizers job, plus TSan's
+    # runtime slowdown on the integration suite (mostly I/O-bound, so well
+    # under TSan's worst-case multiplier, but real).
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 2  # HEAD^ for the push-event scope diff
+
+      - name: Scope — does the diff touch anything this job builds?
+        # Self-scoping, NOT a workflow-level `paths:` filter: the job always
+        # STARTS (required-check semantics stay honest — a skipped required
+        # job reports success while checking nothing), computes the diff
+        # itself, and exits green in seconds when none of its inputs changed.
+        # Fail-open: any trouble computing the diff ⇒ run the job in full.
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEVANT: '^(src/|tests/|migrations/|docker/|config/|templates/|third_party/|scripts/|CMakeLists\.txt$|CMakePresets\.json$|vcpkg\.json$|Makefile$|\.github/workflows/ci\.yml$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+              --jq '.[].filename') || changed=""
+          else
+            # push: first-parent diff of the pushed head (checkout fetched
+            # depth 2). HEAD^ is absent on a root commit → fail open below.
+            changed=$(git diff --name-only HEAD^..HEAD 2>/dev/null) || changed=""
+          fi
+          if [ -z "$changed" ]; then
+            echo "could not determine the changed files — failing open, job runs in full"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'changed files:\n%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -qE "$RELEVANT"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "paths untouched — verified nothing this job covers is affected; exiting green"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.scope.outputs.relevant == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      - name: Expose Actions cache env for sccache
+        # Exports ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN so sccache (inside
+        # docker builds and `docker run` compile steps) can talk to the Actions
+        # cache API. The Dockerfile receives them as BuildKit secrets — never
+        # ARGs — so layer cache keys and image history stay credential-free.
+        if: steps.scope.outputs.relevant == 'true'
+        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
+
+      - name: Build builder image
+        if: steps.scope.outputs.relevant == 'true'
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: builder
+          push: false
+          load: true
+          tags: mi-fitness-api-template:builder
+          build-args: ENABLE_WERROR=ON
+          secrets: |
+            actions_results_url=${{ env.ACTIONS_RESULTS_URL }}
+            actions_runtime_token=${{ env.ACTIONS_RUNTIME_TOKEN }}
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
+          cache-to: type=gha,mode=max
+
+      - name: Start test Postgres + Redis (compose `test` profile)
+        # Same ephemeral sidecars as `make test` and the sanitizers job;
+        # --wait blocks on the compose healthchecks.
+        if: steps.scope.outputs.relevant == 'true'
+        run: |
+          docker compose -f docker/docker-compose.yml --env-file docker/.env \
+            --profile test up -d --wait test-postgres test-redis
+
+      - name: Build & run unit + integration tests with TSan
+        # Same sccache pass-through as the sanitizers job (TSan flags form
+        # their own cache entries), same compose-network + CI_REQUIRE_INFRA=1
+        # wiring, same unit-first ordering for the fast signal.
+        if: steps.scope.outputs.relevant == 'true'
+        run: |
+          NET=$(docker inspect mi_fitness_api_test_postgres \
+            --format '{{range $k, $_ := .NetworkSettings.Networks}}{{$k}}{{end}}')
+          docker run --rm \
+              --network "$NET" \
+              -e TEST_PG_HOST=test-postgres \
+              -e TEST_REDIS_HOST=test-redis \
+              -e CI_REQUIRE_INFRA=1 \
+              -e SCCACHE_GHA_ENABLED=on \
+              -e ACTIONS_CACHE_SERVICE_V2 \
+              -e ACTIONS_RESULTS_URL \
+              -e ACTIONS_RUNTIME_TOKEN \
+              --entrypoint /bin/bash \
+              mi-fitness-api-template:builder -c "
+                  set -e
+                  cd /app
+                  rm -rf build-tsan
+                  cmake -B build-tsan \
+                      -G Ninja \
+                      -DCMAKE_BUILD_TYPE=Debug \
+                      -DENABLE_TSAN=ON \
+                      -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+                      -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+                      -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
+                      -DVCPKG_INSTALLED_DIR=/app/build/vcpkg_installed
+                  cmake --build build-tsan -j\$(nproc) --target mi_fitness_api_tests_unit
+                  TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1 \
+                  ./build-tsan/mi_fitness_api_tests_unit \
+                      --gtest_color=yes
+                  cmake --build build-tsan -j\$(nproc) --target mi_fitness_api_tests_integration
+                  sccache --show-stats
+                  TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1 \
+                  ./build-tsan/mi_fitness_api_tests_integration \
+                      --gtest_color=yes
+              "
+
+      - name: Dump test-infra logs on failure
+        if: failure() && steps.scope.outputs.relevant == 'true'
+        run: |
+          docker compose -f docker/docker-compose.yml --env-file docker/.env \
+            --profile test logs test-postgres test-redis || true

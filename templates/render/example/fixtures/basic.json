@@ -1,0 +1,8 @@
+{
+  "invoice_no": "INV-2026-0042",
+  "customer_name": "Ada Lovelace",
+  "issued_on": "2026-08-21",
+  "total_due": "1 234,56",
+  "note": "Payment within 14 days",
+  "kind": "sample"
+}
