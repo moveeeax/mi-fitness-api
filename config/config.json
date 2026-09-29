@@ -210,6 +210,10 @@
     "brpop_timeout": 5
   }
   ,"xiaomi": {
-    "token_key": "${MI_FITNESS_TOKEN_KEY:-}"
+    "token_key": "${MI_FITNESS_TOKEN_KEY:-}",
+    "user_id": "${MI_FITNESS_USER_ID:-}",
+    "pass_token": "${MI_FITNESS_PASS_TOKEN:-}",
+    "region": "${MI_FITNESS_REGION:-cn}",
+    "reseed": "${MI_FITNESS_RESEED:-false}"
   }
 }

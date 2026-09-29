@@ -136,7 +136,9 @@ gates by construction. Hand-rolled versions usually don't.
    && ./scripts/check-config-sync.sh && ./scripts/assemble-changelog.sh --check`
    — seconds, no build.
    Touched a `check-*` script (or assemble-changelog.sh)? Also run
-   `./scripts/check-selftest.sh` —
+   `./scripts/check-selftest.sh` — in this FORK the template-version-drift
+   case self-skips (TEMPLATE_FORK=1: the stamp is owned by sync-upstream.sh
+   and legitimately lags after the fork's own first release) —
    plants 20 breakages and requires every gate to catch and name them
    (needs helm+yq; in CI `gate-selftest` self-scopes to diffs touching
    `scripts/`, `helm/` or `.github/workflows/`, with a nightly

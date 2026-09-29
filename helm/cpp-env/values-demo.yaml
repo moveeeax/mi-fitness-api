@@ -70,7 +70,7 @@ demoReset:
 
 mi-fitness-api:
   image:
-    tag: "1.6.0"      # pinned known-good amd64 build (unprefixed — release.yml strips the v); bump when a newer one ships
+    tag: "1.7.0"      # pinned known-good amd64 build (unprefixed — release.yml strips the v); bump when a newer one ships
   externalKafka:
     enabled: false
   externalDatabase:
@@ -107,7 +107,7 @@ mi-fitness-api:
 
 mi-fitness-api-worker:
   image:
-    tag: "1.6.0"
+    tag: "1.7.0"
   externalDatabase:
     host: postgresql-rw.db.svc.cluster.local
     name: mi-fitness-api-demo
@@ -136,7 +136,7 @@ mi-fitness-api-worker:
 
 cpp-frontend:
   image:
-    tag: "1.6.0"
+    tag: "1.7.0"
   # Admin "Open trace" deep-links into the cluster Grafana (Tempo datasource
   # uid `tempo`) — traces are owner-visible behind Grafana auth, not public.
   traceUi: "https://grafana.tarassov.me/explore?schemaVersion=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22query%22%3A%22{traceId}%22%2C%22queryType%22%3A%22traceql%22%7D%5D%7D%7D&orgId=1"
