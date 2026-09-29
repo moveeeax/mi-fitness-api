@@ -13,6 +13,7 @@
 ## Global Constraints
 
 1. Лицензия проекта AGPL-3.0-only. Файл `LICENSE` заменяется, заголовки новых файлов лицензию не дублируют.
+1a. Репозиторий публичный, поэтому в коде, тестах, фикстурах и документации не появляется ни `user_id` владельца, ни адреса, ни токены. Во всех примерах идентификатор аккаунта синтетический: `1234567890`. Настоящее значение живёт только в Secret кластера. Публичность заодно закрывает §13 AGPL: исходники доступны всем, кому доступен сервис.
 2. Шаблон разворачивается один раз командой `./scripts/init-project.sh --minimal mi-fitness-api ghcr.io/moveeeax tarassov.me`.
 3. Каждый маршрут обязан присутствовать в контроллере, в `Api::get_endpoints()` и в `docs/openapi.yaml`. Гейты `scripts/check-routes-registered.sh` и `scripts/check-openapi-drift.sh` роняют CI на расхождении.
 4. Тесты без Postgres и Redis лежат в `tests/unit/`, тесты с базой в `tests/integration/`. Каталог определяет бакет, имя набора не должно встречаться в двух бакетах.
@@ -82,7 +83,7 @@ grep -n "MIT" README.md CONTRIBUTING.md THIRD_PARTY_NOTICES.md | head
 ```bash
 git checkout -b task-1-bootstrap
 git add -A && git commit -m "chore: форк шаблона"
-gh repo create moveeeax/mi-fitness-api --private --source=. --remote=origin --push
+gh repo create moveeeax/mi-fitness-api --public --source=. --remote=origin --push
 gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
 ```
 
@@ -453,7 +454,7 @@ TEST(XiaomiCredentials, AcceptsRealisticToken) {
 }
 
 TEST(XiaomiCredentials, MaskKeepsOnlyLastTwoCharacters) {
-    EXPECT_EQ(Xiaomi::mask_account_id("4236479152"), "******52");
+    EXPECT_EQ(Xiaomi::mask_account_id("1234567890"), "******90");
     EXPECT_EQ(Xiaomi::mask_account_id("42"), "******");
     EXPECT_EQ(Xiaomi::mask_account_id(""), "");
 }
@@ -522,22 +523,22 @@ TEST_F(CredentialsRepositoryTest, RoundTripAndRotate) {
     CredentialsRepository repo(kTestKeyB64);
     EXPECT_FALSE(repo.load().has_value());
 
-    repo.store({"4236479152", std::string(347, 'S'), "cn"});
+    repo.store({"1234567890", std::string(347, 'S'), "cn"});
     auto loaded = repo.load();
     ASSERT_TRUE(loaded.has_value());
-    EXPECT_EQ(loaded->user_id, "4236479152");
+    EXPECT_EQ(loaded->user_id, "1234567890");
     EXPECT_EQ(loaded->pass_token, std::string(347, 'S'));
     EXPECT_EQ(loaded->region, "cn");
 
     // Ротация перезаписывает строку, а не добавляет вторую.
-    repo.store({"4236479152", std::string(347, 'R'), "cn"});
+    repo.store({"1234567890", std::string(347, 'R'), "cn"});
     EXPECT_EQ(repo.load()->pass_token, std::string(347, 'R'));
     EXPECT_EQ(count_rows("xiaomi_credentials"), 1);
 }
 
 TEST_F(CredentialsRepositoryTest, TokenIsNotStoredInClear) {
     CredentialsRepository repo(kTestKeyB64);
-    repo.store({"4236479152", std::string(347, 'R'), "cn"});
+    repo.store({"1234567890", std::string(347, 'R'), "cn"});
     const auto sealed = fetch_sealed_token();
     EXPECT_EQ(sealed.find(std::string(20, 'R')), std::string::npos);
     EXPECT_GE(sealed.size(), 347u + 16u);  // secretbox добавляет тег аутентичности
@@ -545,7 +546,7 @@ TEST_F(CredentialsRepositoryTest, TokenIsNotStoredInClear) {
 
 TEST_F(CredentialsRepositoryTest, WrongKeyFailsLoudlyOnLoad) {
     CredentialsRepository writer(kTestKeyB64);
-    writer.store({"4236479152", std::string(347, 'S'), "cn"});
+    writer.store({"1234567890", std::string(347, 'S'), "cn"});
     CredentialsRepository reader("AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=");
     EXPECT_THROW(reader.load(), Xiaomi::MiFitnessAuthError);
 }
@@ -604,11 +605,11 @@ namespace {
 
 std::string login_body(const std::string& token = "NEWTOKEN") {
     return std::string("&&&START&&&") + R"({"passToken":")" + token +
-           R"(","userId":4236479152,"ssecurity":"c2VjcmV0LW1hdGVyaWFsIQ==",)" +
+           R"(","userId":1234567890,"ssecurity":"c2VjcmV0LW1hdGVyaWFsIQ==",)" +
            R"("location":"https://account.xiaomi.com/pass/end"})";
 }
 
-Xiaomi::Credentials seed() { return {"4236479152", std::string(347, 'S'), "cn"}; }
+Xiaomi::Credentials seed() { return {"1234567890", std::string(347, 'S'), "cn"}; }
 
 }  // namespace
 
@@ -791,7 +792,7 @@ TEST(XiaomiFetch, PaginatesUntilHasMoreIsFalse) {
     t.reply_login();
     t.reply_encrypted(R"({"data_list":[{"a":1}],"has_more":true,"next_key":"k1"})");
     t.reply_encrypted(R"({"data_list":[{"a":2}],"has_more":false,"next_key":null})");
-    Xiaomi::CloudClient c(t, {"4236479152", std::string(347, 'S'), "cn"}, [](const auto&) {});
+    Xiaomi::CloudClient c(t, {"1234567890", std::string(347, 'S'), "cn"}, [](const auto&) {});
     c.login();
     const auto items = c.fetch_key("steps", "2026-09-22", "2026-09-23", std::nullopt);
     EXPECT_EQ(items.size(), 2u);
@@ -802,7 +803,7 @@ TEST(XiaomiFetch, RepeatedCursorIsTreatedAsALoop) {
     t.reply_login();
     t.reply_encrypted(R"({"data_list":[{"a":1}],"has_more":true,"next_key":"same"})");
     t.reply_encrypted(R"({"data_list":[{"a":2}],"has_more":true,"next_key":"same"})");
-    Xiaomi::CloudClient c(t, {"4236479152", std::string(347, 'S'), "cn"}, [](const auto&) {});
+    Xiaomi::CloudClient c(t, {"1234567890", std::string(347, 'S'), "cn"}, [](const auto&) {});
     c.login();
     EXPECT_THROW(c.fetch_key("steps", "2026-09-22", "2026-09-23", std::nullopt),
                  Xiaomi::MiFitnessProtocolError);
@@ -815,7 +816,7 @@ TEST(XiaomiFetch, PageCeilingStopsRunawayPagination) {
         t.reply_encrypted(R"({"data_list":[{"a":1}],"has_more":true,"next_key":"k)" +
                           std::to_string(i) + R"("})");
     }
-    Xiaomi::CloudClient c(t, {"4236479152", std::string(347, 'S'), "cn"}, [](const auto&) {});
+    Xiaomi::CloudClient c(t, {"1234567890", std::string(347, 'S'), "cn"}, [](const auto&) {});
     c.login();
     c.set_max_pages(200);
     EXPECT_THROW(c.fetch_key("steps", "2026-01-01", "2026-09-29", std::nullopt),
@@ -827,7 +828,7 @@ TEST(XiaomiFetch, RequestCarriesBothSignatureFields) {
     FakeHttpTransport t;
     t.reply_login();
     t.reply_encrypted(R"({"data_list":[],"has_more":false})");
-    Xiaomi::CloudClient c(t, {"4236479152", std::string(347, 'S'), "cn"}, [](const auto&) {});
+    Xiaomi::CloudClient c(t, {"1234567890", std::string(347, 'S'), "cn"}, [](const auto&) {});
     c.login();
     c.fetch_key("steps", "2026-09-22", "2026-09-22", std::nullopt);
     const auto& body = t.requests().back().body;
@@ -925,7 +926,7 @@ protected:
 
     void SetUp() override {
         TestHelpers::CoreBackedTest::SetUp();
-        seed_credentials("4236479152", std::string(347, 'S'), "cn");
+        seed_credentials("1234567890", std::string(347, 'S'), "cn");
     }
 
     HttpResponsePtr probe(const std::string& query) {
@@ -944,11 +945,11 @@ TEST_F(XiaomiProbeTest, ReturnsMaskedAccountAndCount) {
     ASSERT_NE(resp, nullptr);
     ASSERT_EQ(resp->statusCode(), k200OK);
     const auto body = json::parse(resp->body());
-    EXPECT_EQ(body["data"]["account"], "******52");
+    EXPECT_EQ(body["data"]["account"], "******90");
     EXPECT_EQ(body["data"]["region"], "cn");
     EXPECT_EQ(body["data"]["records"], 2);
     // Полный идентификатор аккаунта в ответе не появляется.
-    EXPECT_EQ(std::string(resp->body()).find("4236479152"), std::string::npos);
+    EXPECT_EQ(std::string(resp->body()).find("1234567890"), std::string::npos);
 }
 
 TEST_F(XiaomiProbeTest, RejectsUnknownKey) {
@@ -1128,17 +1129,39 @@ git commit -m "feat(deploy): база mi_fitness и роль в общем кл�
 
 - [ ] **Step 1: Namespace и секрет приложения**
 
+Владелец передаёт `user_id` и `passToken` отдельно, в этот шаг они приходят через окружение. В аргументы командной строки токен не попадает: аргументы видны в `ps` любому на узле.
+
 ```bash
 kubectl create namespace mi-fitness-api
-kubectl -n mi-fitness-api create secret generic mi-fitness-app \
-  --from-literal=MI_FITNESS_USER_ID=4236479152 \
-  --from-literal=MI_FITNESS_PASS_TOKEN='<свежий токен из браузера>' \
-  --from-literal=MI_FITNESS_TOKEN_KEY="$(openssl rand -base64 32)" \
-  --from-literal=DATABASE_PASSWORD="$(kubectl -n db get secret postgresql-mi-fitness -o jsonpath='{.data.password}' | base64 -d)" \
-  --from-literal=API_KEY="$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)"
+
+# Значения вводятся вручную: user_id обычным чтением, токен без эха.
+read -r  MI_FITNESS_USER_ID
+read -rs MI_FITNESS_PASS_TOKEN
+
+kubectl -n mi-fitness-api create secret generic mi-fitness-app --from-env-file=/dev/stdin <<EOF
+MI_FITNESS_USER_ID=${MI_FITNESS_USER_ID}
+MI_FITNESS_PASS_TOKEN=${MI_FITNESS_PASS_TOKEN}
+MI_FITNESS_TOKEN_KEY=$(openssl rand -base64 32)
+DATABASE_PASSWORD=$(kubectl -n db get secret postgresql-mi-fitness -o jsonpath='{.data.password}' | base64 -d)
+API_KEY=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
+EOF
+
+unset MI_FITNESS_PASS_TOKEN
+kubectl -n mi-fitness-api describe secret mi-fitness-app | tail -8
 ```
 
-Токен берётся свежим из браузера, а не из локальной ключницы Python-моста: два держателя одного токена воюют между собой, и Python-мост на этот момент ещё работает.
+Ожидание: пять ключей, значения не показаны. Дальше проверить, что токен пригоден:
+
+```bash
+python3 - <<'CHECK'
+import os
+t = os.environ.get("MI_FITNESS_PASS_TOKEN", "")
+bad = [(i, hex(ord(c))) for i, c in enumerate(t) if ord(c) > 127 or c.isspace() or c == ";"]
+print("длина:", len(t), "| мусор:", bad or "нет")
+CHECK
+```
+
+Токен берётся свежим, а не из локальной ключницы Python-моста: два держателя одного токена мешают друг другу, а мост на этот момент ещё работает. Проверка на мусорные символы здесь не формальность: обрезанное значение из DevTools уже один раз ломало заголовок `Cookie` непонятной ошибкой.
 
 - [ ] **Step 2: Значения Helm без единого PVC**
 
