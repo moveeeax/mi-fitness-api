@@ -276,7 +276,12 @@ Run:
 
 ```bash
 git push -u origin HEAD
-gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+RID=$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')
+gh run watch "$RID" --compact >/dev/null
+# Код возврата gh run watch доверия не заслуживает: он отдаёт ноль и на
+# отменённом прогоне, и на красном. Решает только conclusion.
+gh run view "$RID" --json conclusion -q .conclusion
+gh run view "$RID" --json jobs -q '.jobs[] | "\(.name): \(.conclusion)"'
 ```
 
 Работы CI: `build-and-test`.
@@ -357,7 +362,12 @@ Run:
 
 ```bash
 git push -u origin HEAD
-gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+RID=$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')
+gh run watch "$RID" --compact >/dev/null
+# Код возврата gh run watch доверия не заслуживает: он отдаёт ноль и на
+# отменённом прогоне, и на красном. Решает только conclusion.
+gh run view "$RID" --json conclusion -q .conclusion
+gh run view "$RID" --json jobs -q '.jobs[] | "\(.name): \(.conclusion)"'
 ```
 
 Работы CI: `build-and-test`.
@@ -484,7 +494,12 @@ Run:
 
 ```bash
 git push -u origin HEAD
-gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+RID=$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')
+gh run watch "$RID" --compact >/dev/null
+# Код возврата gh run watch доверия не заслуживает: он отдаёт ноль и на
+# отменённом прогоне, и на красном. Решает только conclusion.
+gh run view "$RID" --json conclusion -q .conclusion
+gh run view "$RID" --json jobs -q '.jobs[] | "\(.name): \(.conclusion)"'
 ```
 
 Работы CI: `build-and-test`.
@@ -695,7 +710,12 @@ Run:
 
 ```bash
 git push -u origin HEAD
-gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+RID=$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')
+gh run watch "$RID" --compact >/dev/null
+# Код возврата gh run watch доверия не заслуживает: он отдаёт ноль и на
+# отменённом прогоне, и на красном. Решает только conclusion.
+gh run view "$RID" --json conclusion -q .conclusion
+gh run view "$RID" --json jobs -q '.jobs[] | "\(.name): \(.conclusion)"'
 ```
 
 Работы CI: `build-and-test`.
@@ -711,7 +731,12 @@ Run:
 
 ```bash
 git push -u origin HEAD
-gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+RID=$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')
+gh run watch "$RID" --compact >/dev/null
+# Код возврата gh run watch доверия не заслуживает: он отдаёт ноль и на
+# отменённом прогоне, и на красном. Решает только conclusion.
+gh run view "$RID" --json conclusion -q .conclusion
+gh run view "$RID" --json jobs -q '.jobs[] | "\(.name): \(.conclusion)"'
 ```
 
 Работы CI: `build-and-test`.
@@ -844,7 +869,12 @@ Run:
 
 ```bash
 git push -u origin HEAD
-gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+RID=$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')
+gh run watch "$RID" --compact >/dev/null
+# Код возврата gh run watch доверия не заслуживает: он отдаёт ноль и на
+# отменённом прогоне, и на красном. Решает только conclusion.
+gh run view "$RID" --json conclusion -q .conclusion
+gh run view "$RID" --json jobs -q '.jobs[] | "\(.name): \(.conclusion)"'
 ```
 
 Работы CI: `build-and-test`.
@@ -860,7 +890,12 @@ Run:
 
 ```bash
 git push -u origin HEAD
-gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+RID=$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')
+gh run watch "$RID" --compact >/dev/null
+# Код возврата gh run watch доверия не заслуживает: он отдаёт ноль и на
+# отменённом прогоне, и на красном. Решает только conclusion.
+gh run view "$RID" --json conclusion -q .conclusion
+gh run view "$RID" --json jobs -q '.jobs[] | "\(.name): \(.conclusion)"'
 ```
 
 Работы CI: `build-and-test`.
@@ -989,7 +1024,12 @@ Run:
 
 ```bash
 git push -u origin HEAD
-gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status --compact
+RID=$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')
+gh run watch "$RID" --compact >/dev/null
+# Код возврата gh run watch доверия не заслуживает: он отдаёт ноль и на
+# отменённом прогоне, и на красном. Решает только conclusion.
+gh run view "$RID" --json conclusion -q .conclusion
+gh run view "$RID" --json jobs -q '.jobs[] | "\(.name): \(.conclusion)"'
 ```
 
 Работы CI: `build-and-test` (бакет с базой входит в `make test`).
