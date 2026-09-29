@@ -2799,25 +2799,6 @@ export interface components {
             user: components["schemas"]["User"];
             message: string;
         };
-        Post: {
-            /** Format: uuid */
-            id: string;
-            slug: string;
-            title: string;
-            summary: string;
-            body: string;
-            /** @enum {string} */
-            status: "draft" | "published";
-            topic: string;
-            tags: string[];
-            /** Format: date-time */
-            published_at: string | null;
-            created_at: string;
-            updated_at: string;
-        };
-        PostDetailResponse: {
-            data: components["schemas"]["Post"];
-        };
         BillingPackage: {
             /** Format: uuid */
             id: string;
