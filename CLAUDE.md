@@ -1,5 +1,18 @@
 # CLAUDE.md — agent guide for this repo
 
+## Запрет: локальная сборка
+
+Собирать этот проект локально запрещено. Ни `make test`, ни `make test-unit`,
+ни разовая компиляция отдельного файла компилятором, ни черновые пробы «на
+минутку». Единственный исполнитель сборки и тестов это GitHub Actions.
+
+Локально разрешено только то, чему не нужен компилятор: `clang-format`,
+`gitleaks`, гейты на shell и python (`scripts/check-*.sh`), рендер Helm,
+генератор векторов на python.
+
+Следствие принято сознательно: ошибки, которые видит только GCC или
+санитайзеры, находятся прогоном CI, и цикл задачи из-за этого длиннее.
+
 C++20 REST service template: Drogon + PostgreSQL + Redis, vcpkg/CMake,
 React SPA in `frontend/`, Helm charts in `helm/`. `docs/INDEX.md` is the
 map of all documentation; `docs/CONVENTIONS.md` is the pattern reference.
