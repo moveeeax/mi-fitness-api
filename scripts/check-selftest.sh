@@ -589,27 +589,34 @@ run_case bucket-dup-api check-test-buckets.sh break_bucket_dup_api \
     'Base64Test'
 
 run_case changelog-phantom-release check-version-sync.sh break_changelog_phantom_release \
-    "CMakeLists.txt CHANGELOG.md helm .template-version" \
+    "CMakeLists.txt CHANGELOG.md helm .template-version project.env" \
     'version drift' \
     'newest release heading [99.99.99]'
 
 run_case changelog-heading-format check-version-sync.sh break_changelog_heading_format \
-    "CMakeLists.txt CHANGELOG.md helm .template-version" \
+    "CMakeLists.txt CHANGELOG.md helm .template-version project.env" \
     "could not parse a released '## [x.y.z]' heading"
 
 run_case helm-tag-drift check-version-sync.sh break_helm_tag_drift \
-    "CMakeLists.txt CHANGELOG.md helm .template-version" \
+    "CMakeLists.txt CHANGELOG.md helm .template-version project.env" \
     'helm image tag drift: helm/cpp-env/values-stage.yaml pins tag "9.9.9"' \
     'A stale pin deploys an old image'
 
 run_case chart-appversion-drift check-version-sync.sh break_chart_appversion_drift \
-    "CMakeLists.txt CHANGELOG.md helm .template-version" \
+    "CMakeLists.txt CHANGELOG.md helm .template-version project.env" \
     'appVersion drift: helm/mi-fitness-api/Chart.yaml has appVersion "0.0.1"'
 
-run_case template-version-drift check-version-sync.sh break_template_version_drift \
-    "CMakeLists.txt CHANGELOG.md helm .template-version" \
-    '.template-version drift: the stamp says "0.0.9"' \
-    'wrong three-way patch base'
+# В форке (project.env: TEMPLATE_FORK=1) гейт пропускает проверку штампа по
+# замыслу — им владеет sync-upstream.sh, и после первого собственного релиза
+# форка штамп законно отстаёт от версии. Ловить в песочнице нечего.
+if grep -qs '^TEMPLATE_FORK=1' "$REPO/project.env"; then
+    echo "SELFTEST SKIP [template-version-drift]: fork mode — the stamp is owned by sync-upstream.sh"
+else
+    run_case template-version-drift check-version-sync.sh break_template_version_drift \
+        "CMakeLists.txt CHANGELOG.md helm .template-version project.env" \
+        '.template-version drift: the stamp says "0.0.9"' \
+        'wrong three-way patch base'
+fi
 
 run_case nginx-location-drift check-frontend-nginx-sync.sh break_nginx_location_drift \
     "frontend/nginx.conf helm/cpp-frontend/templates/configmap.yaml" \
