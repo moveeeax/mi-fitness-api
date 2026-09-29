@@ -15,6 +15,7 @@
 #include <string_view>
 
 #include <gtest/gtest.h>
+
 #include <nlohmann/json.hpp>
 
 #include "xiaomi/Crypto.hpp"
@@ -25,8 +26,7 @@ nlohmann::json load_vectors() {
     // Путь от корня репозитория: так же читают спеку тесты e2e.
     std::ifstream in("tests/fixtures/xiaomi_crypto_vectors.json");
     if (!in) {
-        throw std::runtime_error(
-            "fixture not found; run tools/gen_crypto_vectors.py from the repo root");
+        throw std::runtime_error("fixture not found; run tools/gen_crypto_vectors.py from the repo root");
     }
     nlohmann::json j;
     in >> j;
@@ -41,8 +41,7 @@ TEST(XiaomiCrypto, Rc4MatchesUpstreamVectors) {
     for (const auto& v : vectors) {
         const auto key = Xiaomi::Crypto::b64_decode(v["key_b64"].get<std::string>());
         const auto payload = Xiaomi::Crypto::b64_decode(v["payload_b64"].get<std::string>());
-        EXPECT_EQ(Xiaomi::Crypto::b64_encode(Xiaomi::Crypto::rc4(key, payload)),
-                  v["cipher_b64"].get<std::string>());
+        EXPECT_EQ(Xiaomi::Crypto::b64_encode(Xiaomi::Crypto::rc4(key, payload)), v["cipher_b64"].get<std::string>());
     }
 }
 
@@ -55,9 +54,9 @@ TEST(XiaomiCrypto, Rc4IsItsOwnInverse) {
 TEST(XiaomiCrypto, SignedNonceMatchesUpstreamVectors) {
     for (const auto& v : load_vectors()["signed_nonce"]) {
         const auto nonce = Xiaomi::Crypto::b64_decode(v["nonce_b64"].get<std::string>());
-        EXPECT_EQ(Xiaomi::Crypto::b64_encode(
-                      Xiaomi::Crypto::signed_nonce(v["ssecurity_b64"].get<std::string>(), nonce)),
-                  v["signed_nonce_b64"].get<std::string>());
+        EXPECT_EQ(
+            Xiaomi::Crypto::b64_encode(Xiaomi::Crypto::signed_nonce(v["ssecurity_b64"].get<std::string>(), nonce)),
+            v["signed_nonce_b64"].get<std::string>());
     }
 }
 
@@ -72,7 +71,9 @@ TEST(XiaomiCrypto, SignatureMatchesUpstreamVectors) {
         }
         EXPECT_EQ(Xiaomi::Crypto::signature(v["method"].get<std::string>(),
                                             v["path"].get<std::string>(),
-                                            v["data"].get<std::string>(), rc4_hash, sn),
+                                            v["data"].get<std::string>(),
+                                            rc4_hash,
+                                            sn),
                   v["signature"].get<std::string>());
     }
 }
@@ -94,8 +95,7 @@ TEST(XiaomiCrypto, NonceLayoutIsTwelveBytesBigEndianMinutes) {
 }
 
 TEST(XiaomiCrypto, NonceRejectsWrongRandomLength) {
-    EXPECT_THROW(Xiaomi::Crypto::make_nonce(1, std::string(7, '\x00')),
-                 Xiaomi::MiFitnessAuthError);
+    EXPECT_THROW(Xiaomi::Crypto::make_nonce(1, std::string(7, '\x00')), Xiaomi::MiFitnessAuthError);
 }
 
 // Стандартный base64 с паддингом, не base64url из Utils::Base64.

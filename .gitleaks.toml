@@ -40,6 +40,15 @@ regexes = [
   '''test-(?:db|redis)-pass-change-me''',
   # helm/cpp-env/values-ci.yaml render fixtures (never deployed).
   '''ci-(?:jwt-secret|db-pass|redis-pass)[0-9a-z-]*''',
+  # tests/fixtures/xiaomi_crypto_vectors.json — золотые векторы крипты Xiaomi.
+  # Это base64 от фиксированных байтовых последовательностей из генератора
+  # tools/gen_crypto_vectors.py: bytes(range(32)) и b"\x01" * 32. Ключами они
+  # называются по роли в алгоритме, ничего не открывают и ни к чему не дают
+  # доступа. Исключено по значению, как требует комментарий выше: путь целиком
+  # закрывать нельзя, иначе настоящий ключ, вставленный в этот файл позже,
+  # проедет без проверки.
+  '''AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=''',
+  '''AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=''',
 ]
 paths = [
   # Local dev artifact, gitignored and never committed — allowlisted so a
