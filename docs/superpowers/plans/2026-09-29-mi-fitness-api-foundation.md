@@ -1229,9 +1229,9 @@ ingress:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
   hosts:
-    - host: mi-fitness-api.tarassov.me
+    - host: mi-fit.tarassov.me
   tls:
-    - hosts: [mi-fitness-api.tarassov.me]
+    - hosts: [mi-fit.tarassov.me]
       secretName: mi-fitness-api-tls
 ```
 
@@ -1270,7 +1270,7 @@ kubectl -n db run psql-check --rm -i --restart=Never \
 ```bash
 API_KEY=$(kubectl -n mi-fitness-api get secret mi-fitness-app -o jsonpath='{.data.API_KEY}' | base64 -d)
 curl -s -H "X-API-Key: $API_KEY" \
-  'https://mi-fitness-api.tarassov.me/api/v1/xiaomi/probe?key=steps&from=2026-09-22&to=2026-09-22' | jq
+  'https://mi-fit.tarassov.me/api/v1/xiaomi/probe?key=steps&from=2026-09-22&to=2026-09-22' | jq
 ```
 
 Ожидание: `records` больше нуля, `account` равен `******52`, `region` равен `cn`. Это единственная точка всего плана, где порт крипты подтверждается настоящим облаком, а не векторами.
