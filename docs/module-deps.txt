@@ -66,6 +66,7 @@ observability -> utils
 repositories -> database
 repositories -> domain
 repositories -> utils
+repositories -> xiaomi
 root -> api
 root -> cache
 root -> core
