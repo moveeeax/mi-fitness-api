@@ -113,7 +113,10 @@ std::string b64_decode(std::string_view encoded) {
         out.push_back(static_cast<char>(quad & 0xff));
     }
 
-    out.resize(out.size() - padding);
+    // std::min, а не прямое вычитание: GCC под -Werror=stringop-overflow не
+    // может доказать, что padding не превысит размер, и считает возможным
+    // memset на SIZE_MAX. Ограничение делает результат доказуемо неотрицательным.
+    out.resize(out.size() - std::min(padding, out.size()));
     return out;
 }
 

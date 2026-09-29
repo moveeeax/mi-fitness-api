@@ -103,5 +103,10 @@ TEST(XiaomiCrypto, Base64IsStandardWithPadding) {
     EXPECT_EQ(Xiaomi::Crypto::b64_encode(std::string("\xff\xfe", 2)), "//4=");
     EXPECT_EQ(Xiaomi::Crypto::b64_decode("//4="), std::string("\xff\xfe", 2));
     EXPECT_EQ(Xiaomi::Crypto::b64_encode(""), "");
+    // Два символа паддинга: один байт на выходе, самый короткий путь декодера.
+    EXPECT_EQ(Xiaomi::Crypto::b64_decode("QQ=="), "A");
+    EXPECT_EQ(Xiaomi::Crypto::b64_encode("A"), "QQ==");
+    // Паддинг в середине это мусор, а не короткая группа.
+    EXPECT_THROW(Xiaomi::Crypto::b64_decode("QQ==QQ=="), Xiaomi::MiFitnessAuthError);
     EXPECT_THROW(Xiaomi::Crypto::b64_decode("not base64!"), Xiaomi::MiFitnessAuthError);
 }
