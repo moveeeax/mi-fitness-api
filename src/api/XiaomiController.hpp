@@ -14,6 +14,7 @@
 
 #include <drogon/HttpController.h>
 #include <drogon/drogon.h>
+#include <spdlog/spdlog.h>
 
 #include <nlohmann/json.hpp>
 
@@ -84,11 +85,15 @@ public:
                                          {"region", client.credentials().region},
                                          {"key", key},
                                          {"records", items.size()}}}}));
-        } catch (const Xiaomi::MiFitnessAuthError&) {
+        } catch (const Xiaomi::MiFitnessAuthError& e) {
             // Лечится только свежим токеном, поэтому код отличим от прочих
-            // отказов. Текст исключения наружу не идёт.
+            // отказов. Текст исключения наружу не идёт, но в лог обязан:
+            // иначе не отличить мёртвый токен от сломанной ступени логина.
+            // Тексты MiFitness*Error по построению не содержат значений.
+            spdlog::warn("xiaomi probe auth failure: {}", e.what());
             callback(ErrorResponse::service_unavailable("upstream_auth", "Xiaomi refused the stored credentials"));
-        } catch (const Xiaomi::MiFitnessProtocolError&) {
+        } catch (const Xiaomi::MiFitnessProtocolError& e) {
+            spdlog::warn("xiaomi probe protocol failure: {}", e.what());
             callback(ErrorResponse::service_unavailable("upstream_protocol",
                                                         "Xiaomi response did not match the expected format"));
         }
