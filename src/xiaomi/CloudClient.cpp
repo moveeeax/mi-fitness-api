@@ -26,6 +26,11 @@ namespace Xiaomi {
 namespace {
 
 constexpr std::string_view kLoginPrefix = "&&&START&&&";
+
+// Запрос без User-Agent облако встречает конвертом с passToken:null
+// (живая диагностика 2026-09-29). Значение из проверенных: дефолтный UA
+// httpx, с которым работал Python-мост.
+constexpr std::string_view kUserAgent = "python-httpx/0.28.1";
 constexpr std::string_view kLoginUrl = "https://account.xiaomi.com/pass/serviceLogin?_json=true&sid=miothealth";
 
 bool host_is_xiaomi(const std::string& host) {
@@ -125,6 +130,7 @@ void CloudClient::login() {
     HttpRequest request;
     request.method = "GET";
     request.url = std::string(kLoginUrl);
+    request.headers.emplace_back("User-Agent", std::string(kUserAgent));
     request.headers.emplace_back("Cookie", "userId=" + credentials_.user_id + "; passToken=" + credentials_.pass_token);
 
     const HttpResponse response = transport_.send(request);
@@ -185,6 +191,7 @@ void CloudClient::login() {
     HttpRequest redirect;
     redirect.method = "GET";
     redirect.url = location;
+    redirect.headers.emplace_back("User-Agent", std::string(kUserAgent));
     const HttpResponse redirect_response = transport_.send(redirect);
 
     std::string cookies;
@@ -264,6 +271,7 @@ nlohmann::json CloudClient::post_signed(const std::string& base_url,
     request.url = base_url + std::string(api_path);
     request.body = "data=" + url_encode(encrypted_data) + "&rc4_hash__=" + url_encode(encrypted_hash) +
                    "&signature=" + url_encode(signature) + "&_nonce=" + url_encode(Crypto::b64_encode(nonce));
+    request.headers.emplace_back("User-Agent", std::string(kUserAgent));
     request.headers.emplace_back("Cookie", cookies_);
     request.headers.emplace_back("Content-Type", "application/x-www-form-urlencoded");
 
