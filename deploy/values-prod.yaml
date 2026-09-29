@@ -28,6 +28,10 @@ migrations:
 
 externalRedis:
   url: "tcp://redis.db.svc.cluster.local:6379"
+  # Чарт по умолчанию включает Sentinel с адресами-примерами.
+  useSentinel: false
+  # Чарт по умолчанию включает Sentinel с адресами-примерами.
+  useSentinel: false
   # Отдельный логический индекс: Redis общий, ключи не должны пересекаться
   # с другими приложениями кластера.
   db: 3
@@ -45,6 +49,14 @@ ingress:
   tls:
     - hosts: [mi-fit.tarassov.me]
       secretName: mi-fit-tls
+
+auth:
+  cookies:
+    # Логин выдаёт токены куками __Host-*, и middleware читает их только при
+    # включённом флаге. Для входа по паролю это основной режим; машинный
+    # доступ идёт по X-API-Key и от флага не зависит.
+    enabled: true
+    secure: true
 
 mail:
   enabled: false
