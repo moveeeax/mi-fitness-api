@@ -1175,10 +1175,110 @@
  "paths": {
   "/api/v1/xiaomi/probe": {
    "get": {
-    "summary": "XiaomiController::listXiaomi",
+    "summary": "Probe the Mi Fitness cloud — login, fetch one data key, count records",
+    "description": "Diagnostic route: performs a real two-step Xiaomi login and one signed\ndata fetch, returning only counts and a masked account id — never the\nrecords themselves. The single place where the crypto port is verified\nagainst the live cloud.\n",
+    "tags": [
+     "xiaomi"
+    ],
+    "parameters": [
+     {
+      "name": "key",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "enum": [
+        "steps",
+        "calories",
+        "sleep",
+        "weight",
+        "heart_rate",
+        "spo2",
+        "stress",
+        "resting_heart_rate",
+        "abnormal_heart_beat"
+       ]
+      }
+     },
+     {
+      "name": "from",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "date"
+      }
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "date"
+      }
+     }
+    ],
     "responses": {
      "200": {
-      "description": "OK"
+      "description": "Cloud reachable, credentials valid",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data"
+         ],
+         "properties": {
+          "data": {
+           "type": "object",
+           "required": [
+            "account",
+            "region",
+            "key",
+            "records"
+           ],
+           "properties": {
+            "account": {
+             "type": "string",
+             "description": "Masked account id",
+             "six stars plus last two characters": null
+            },
+            "region": {
+             "type": "string"
+            },
+            "key": {
+             "type": "string"
+            },
+            "records": {
+             "type": "integer"
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "Unknown data key or malformed date range",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "Not configured, upstream refused authentication, or protocol mismatch",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
      }
     }
    }
@@ -3526,7 +3626,7 @@
  "x-generated": {
   "by": "scripts/gen-openapi-json.sh",
   "source": "docs/openapi.yaml",
-  "source_bytes": 62803,
-  "source_fnv1a64": "664c69e62b2d19ec"
+  "source_bytes": 64560,
+  "source_fnv1a64": "d900f255cbe414c2"
  }
 }

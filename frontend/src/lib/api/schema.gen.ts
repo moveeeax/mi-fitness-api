@@ -11,22 +11,60 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** XiaomiController::listXiaomi */
+        /**
+         * Probe the Mi Fitness cloud — login, fetch one data key, count records
+         * @description Diagnostic route: performs a real two-step Xiaomi login and one signed
+         *     data fetch, returning only counts and a masked account id — never the
+         *     records themselves. The single place where the crypto port is verified
+         *     against the live cloud.
+         */
         get: {
             parameters: {
-                query?: never;
+                query: {
+                    key: "steps" | "calories" | "sleep" | "weight" | "heart_rate" | "spo2" | "stress" | "resting_heart_rate" | "abnormal_heart_beat";
+                    from: string;
+                    to: string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
             };
             requestBody?: never;
             responses: {
-                /** @description OK */
+                /** @description Cloud reachable, credentials valid */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            data: {
+                                /** @description Masked account id */
+                                account: string;
+                                region: string;
+                                key: string;
+                                records: number;
+                            };
+                        };
+                    };
+                };
+                /** @description Unknown data key or malformed date range */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not configured, upstream refused authentication, or protocol mismatch */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
                 };
             };
         };
