@@ -18,6 +18,11 @@
 #include <string>
 #include <string_view>
 
+// Функции ниже бросают Xiaomi::MiFitnessAuthError, поэтому тип обязан быть
+// виден вместе с их объявлениями: иначе EXPECT_THROW у потребителя не
+// соберётся, а сообщение компилятора уведёт в сторону.
+#include "xiaomi/Errors.hpp"
+
 namespace Xiaomi::Crypto {
 
 /// Стандартный base64 с паддингом. Utils::Base64 здесь не годится: там
