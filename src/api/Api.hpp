@@ -34,6 +34,7 @@
 #include "api/BillingController.hpp"
 #include "api/HealthController.hpp"
 #include "api/JobsController.hpp"
+#include "api/XiaomiController.hpp"
 #include "api/Middleware.hpp"
 
 namespace Api {

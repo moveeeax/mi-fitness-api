@@ -277,3 +277,9 @@ outage can never affect the money path.
 
 CONFIG_FILE=config/local.json ./mi_fitness_api
 ```
+
+## Xiaomi
+
+| Env | JSON key | Type | Default | Notes |
+|---|---|---|---|---|
+| `MI_FITNESS_TOKEN_KEY` | `xiaomi.token_key` | string | `""` | Base64 of the 32-byte libsodium secretbox key that seals the rotated Mi Fitness passToken in Postgres. Empty means the Xiaomi module is not configured; the probe endpoint answers 503 `not_configured`. Never log or commit this value |

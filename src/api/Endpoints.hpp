@@ -78,6 +78,7 @@ inline const std::vector<EndpointInfo>& get_endpoints() {
         {"PUT", "/api/v1/admin/billing/settings", "Admin: update the billing rate/bounds settings"},
         {"POST", "/api/v1/admin/billing/users/{id}/adjust", "Admin: manually adjust a user's wallet balance"},
         {"GET", "/api/v1/admin/billing/metrics", "Admin: billing metrics (revenue, conversion, refunds)"},
+        {"GET", "/api/v1/xiaomi/probe", "XiaomiController::listXiaomi"},
     };
     return endpoints;
 }

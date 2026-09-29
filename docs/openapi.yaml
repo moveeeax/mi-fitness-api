@@ -545,6 +545,11 @@ components:
 
 # -----------------------------------------------------------------------------
 paths:
+  /api/v1/xiaomi/probe:
+    get:
+      summary: XiaomiController::listXiaomi
+      responses:
+        '200': { description: OK }
   /:
     get:
       summary: Endpoint discovery — list every registered route
