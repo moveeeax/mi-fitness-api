@@ -52,6 +52,13 @@ protected:
         return json{{"code", 0}, {"result", {{"data_list", json::array({record})}, {"has_more", false}}}}.dump();
     }
 
+    static std::string steps_page_at(long long time, int zone_offset, int steps) {
+        const json record{{"time", time},
+                          {"zone_offset", zone_offset},
+                          {"value", json{{"steps", steps}, {"distance", 10.0}, {"calories", 1.0}}.dump()}};
+        return json{{"code", 0}, {"result", {{"data_list", json::array({record})}, {"has_more", false}}}}.dump();
+    }
+
     static std::string weight_page() {
         const json record{{"time", kNoon}, {"zone_offset", 28800}, {"value", json{{"weight", 91.9}}.dump()}};
         return json{{"code", 0}, {"result", {{"data_list", json::array({record})}, {"has_more", false}}}}.dump();
@@ -65,6 +72,34 @@ protected:
 };
 
 }  // namespace
+
+// Сутки, разрезанные границей куска, собираются целиком. Границы кусков идут
+// в поясе региона (+08 для cn), устройство живёт в +07: вечерние минуты дня X
+// попадают в следующий кусок, и построчный upsert по кускам перезатирал
+// полный агрегат дня часовым огрызком. Живой бэкфил терял так каждый
+// седьмой день (сверка с Python-мостом, отчёт 2026-09).
+TEST_F(SyncServiceTest, ChunkBoundaryDayIsAggregatedAcrossChunks) {
+    Repositories::SyncRunRepository runs;
+    transport.reply_login();
+    // Кусок 1 (2026-09-22..28): полный день 28-го, полдень +08.
+    transport.reply_encrypted(steps_page_at(1790568000, 28800, 7000));  // steps
+    transport.reply_encrypted(empty_page());                            // calories
+    // Кусок 2 (2026-09-29..30): вечерняя минута того же 28-го в +07.
+    transport.reply_encrypted(steps_page_at(1790613000, 25200, 226));  // steps
+    transport.reply_encrypted(empty_page());                           // calories
+
+    const long id = runs.create("2026-09-22", "2026-09-30", {"daily_activity"});
+    service().run(id, "2026-09-22", "2026-09-30", {"daily_activity"});
+
+    const auto row = runs.get(id);
+    ASSERT_TRUE(row.has_value());
+    EXPECT_EQ((*row)["status"], "succeeded");
+    const long steps = Database::get().execute_read([](auto& txn) {
+        auto r = txn.exec("SELECT steps FROM daily_activity WHERE date = '2026-09-28'");
+        return r.empty() ? -1L : r[0][0].template as<long>();
+    });
+    EXPECT_EQ(steps, 7226);
+}
 
 TEST_F(SyncServiceTest, RepeatRunGivesAddedThenUpdated) {
     Repositories::SyncRunRepository runs;
