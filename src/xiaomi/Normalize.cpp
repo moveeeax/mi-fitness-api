@@ -6,9 +6,12 @@
 #include "xiaomi/Normalize.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <initializer_list>
 #include <map>
+#include <set>
 #include <tuple>
 #include <utility>
 
@@ -236,6 +239,324 @@ ActivityResult normalize_daily_activity(const std::vector<nlohmann::json>& step_
         result.days.push_back(std::move(day));
     }
     return result;
+}
+
+}  // namespace Xiaomi
+
+namespace Xiaomi {
+
+namespace {
+
+using detail::iso_with_offset;
+
+/// Балл валиден только целым в (0, 100]: нули это «нет данных» у моделей
+/// Xiaomi, дробное это мусор. Порядок ключей как у эталона.
+std::optional<int> valid_sleep_score(const nlohmann::json& payload) {
+    for (const char* name : {"score", "sleep_score"}) {
+        if (!payload.contains(name)) {
+            continue;
+        }
+        const auto& value = payload[name];
+        if (value.is_boolean() || value.is_null()) {
+            continue;
+        }
+        double number = 0;
+        if (value.is_number()) {
+            number = value.get<double>();
+        } else if (value.is_string()) {
+            try {
+                number = std::stod(value.get<std::string>());
+            } catch (...) {
+                continue;
+            }
+        } else {
+            continue;
+        }
+        if (number > 0 && number <= 100 && number == static_cast<long long>(number)) {
+            return static_cast<int>(number);
+        }
+    }
+    return std::nullopt;
+}
+
+/// sid со значениями "" и "default" означает «источник неизвестен».
+std::optional<std::string> sleep_source(const nlohmann::json& value) {
+    if (value.is_null()) {
+        return std::nullopt;
+    }
+    const std::string text = value.is_string() ? value.get<std::string>() : value.dump();
+    if (text.empty() || text == "default") {
+        return std::nullopt;
+    }
+    return text;
+}
+
+std::int64_t field_epoch(const nlohmann::json& payload, const char* key) {
+    const auto& value = payload.at(key);
+    std::int64_t out = 0;
+    if (value.is_number()) {
+        out = value.get<std::int64_t>();
+    } else if (value.is_string()) {
+        out = std::stoll(value.get<std::string>());
+    } else {
+        throw MiFitnessProtocolError("timestamp field has an unexpected type");
+    }
+    if (out < kMinValidTimestamp) {
+        throw MiFitnessProtocolError("timestamp predates year 2000");
+    }
+    return out;
+}
+
+std::optional<std::int64_t> first_epoch(const nlohmann::json& payload, std::initializer_list<const char*> keys) {
+    for (const char* key : keys) {
+        if (payload.contains(key) && !payload[key].is_null()) {
+            const auto& v = payload[key];
+            const bool falsy =
+                (v.is_number() && v.get<double>() == 0) || (v.is_string() && v.get<std::string>().empty());
+            if (!falsy) {
+                return field_epoch(payload, key);
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+std::string sleep_stage_name(const nlohmann::json& state) {
+    // 2 deep, 3 light, 4 rem, 5 awake; код 1 в наблюдениях не встречался,
+    // неизвестное это light (та же оговорка, что у эталона).
+    int code = -1;
+    if (state.is_number()) {
+        code = state.get<int>();
+    } else if (state.is_string()) {
+        try {
+            code = std::stoi(state.get<std::string>());
+        } catch (...) {
+            code = -1;
+        }
+    }
+    switch (code) {
+        case 2:
+            return "deep";
+        case 4:
+            return "rem";
+        case 5:
+            return "awake";
+        case 3:
+        default:
+            return "light";
+    }
+}
+
+bool main_sleep_candidate(const Domain::SleepSession& s) {
+    const std::int64_t span = s.end_epoch - s.start_epoch;
+    return !s.is_nap && s.duration_minutes > 0 && s.duration_minutes <= 1440 && span > 0 && span <= 86400;
+}
+
+}  // namespace
+
+std::vector<Domain::SleepSession> normalize_sleep(const std::vector<nlohmann::json>& records,
+                                                  std::string_view user_id,
+                                                  long& skipped) {
+    std::vector<Domain::SleepSession> sessions;
+    for (const auto& item : records) {
+        try {
+            const auto payload = detail::parse_value(item);
+            const int offset = detail::zone_offset_of(item);
+
+            const auto start = first_epoch(payload, {"bedtime", "device_bedtime", "bed_timestamp"});
+            auto end = first_epoch(payload, {"wake_up_time", "device_wake_up_time", "out_bed_timestamp"});
+            if (!end.has_value() && item.contains("time") && !item["time"].is_null()) {
+                end = field_epoch(item, "time");
+            }
+            if (!start.has_value() || !end.has_value()) {
+                continue;  // запись без границ это не сон, пропуск без skipped, как у эталона
+            }
+
+            Domain::SleepSession s;
+            s.user_id = std::string(user_id);
+            s.start_epoch = *start;
+            s.end_epoch = *end;
+            s.start_at = iso_with_offset(*start, offset);
+            s.end_at = iso_with_offset(*end, offset);
+            const long computed = std::max<std::int64_t>(0, (*end - *start) / 60);
+            const double duration_raw =
+                payload.contains("duration") && payload["duration"].is_number() ? payload["duration"].get<double>() : 0;
+            s.duration_minutes = duration_raw > 0 ? static_cast<int>(duration_raw) : static_cast<int>(computed);
+            double awake = 0;
+            for (const char* key : {"awake_duration", "sleep_awake_duration"}) {
+                if (payload.contains(key) && payload[key].is_number() && payload[key].get<double>() > 0) {
+                    awake = payload[key].get<double>();
+                    break;
+                }
+            }
+            s.time_awake_minutes = static_cast<int>(awake);
+            s.time_asleep_minutes = std::max(0, s.duration_minutes - s.time_awake_minutes);
+
+            if (payload.contains("items") && payload["items"].is_array()) {
+                for (const auto& segment : payload["items"]) {
+                    try {
+                        const std::int64_t seg_start = segment.value("start_time", 0LL);
+                        const std::int64_t seg_end = segment.value("end_time", 0LL);
+                        const int minutes = static_cast<int>(std::max<std::int64_t>(0, (seg_end - seg_start) / 60));
+                        if (minutes > 0) {
+                            s.stages.push_back({sleep_stage_name(segment.value("state", nlohmann::json())), minutes});
+                        }
+                    } catch (...) {
+                        continue;
+                    }
+                }
+            }
+
+            const std::string sid_part =
+                item.contains("sid") && item["sid"].is_string() && !item["sid"].get<std::string>().empty()
+                    ? item["sid"].get<std::string>()
+                    : std::string(user_id);
+            const std::string time_part =
+                item.contains("time") && !item["time"].is_null()
+                    ? (item["time"].is_string() ? item["time"].get<std::string>()
+                                                : std::to_string(item["time"].get<std::int64_t>()))
+                    : std::to_string(*end);
+            s.sleep_id = sid_part + "_" + time_part;
+            s.source_record_id = item.contains("time") && !item["time"].is_null() ? time_part : "";
+            s.timezone = item.value("zone_name", std::string()).empty() ? "UTC" : item["zone_name"].get<std::string>();
+            s.collected_at = s.end_at;
+            if (item.contains("time") && !item["time"].is_null()) {
+                try {
+                    s.collected_at = iso_with_offset(field_epoch(item, "time"), offset);
+                } catch (...) {}
+            }
+
+            const auto score = valid_sleep_score(payload);
+            s.sleep_score = score;
+            if (score.has_value()) {
+                s.sleep_score_source = "sleep_record";
+            }
+            const std::string nap = payload.contains("is_nap") ? payload["is_nap"].dump() : "false";
+            std::string nap_lower = nap;
+            std::transform(nap_lower.begin(), nap_lower.end(), nap_lower.begin(), ::tolower);
+            s.is_nap = nap_lower == "true" || nap_lower == "1" || nap_lower == "\"true\"" || nap_lower == "\"1\"" ||
+                       nap_lower == "\"yes\"";
+            s.source_sid = sleep_source(item.contains("sid") ? item["sid"] : nlohmann::json());
+            sessions.push_back(std::move(s));
+        } catch (const std::exception&) {
+            ++skipped;
+        }
+    }
+    return sessions;
+}
+
+void apply_daily_sleep_scores(std::vector<Domain::SleepSession>& sessions,
+                              const std::vector<nlohmann::json>& reports,
+                              int default_zone_offset) {
+    std::map<std::size_t, std::set<int>> proposals;
+    for (const auto& item : reports) {
+        try {
+            if (!item.is_object()) {
+                continue;
+            }
+            if (item.value("key", std::string("sleep")) != "sleep" ||
+                item.value("tag", std::string("daily_report")) != "daily_report") {
+                continue;
+            }
+            const auto payload = detail::parse_value(item);
+            const auto score = valid_sleep_score(payload);
+            if (!score.has_value()) {
+                continue;
+            }
+            const int offset = item.contains("zone_offset") && item["zone_offset"].is_number()
+                                   ? item["zone_offset"].get<int>()
+                                   : default_zone_offset;
+            const std::string report_day = detail::iso_with_offset(field_epoch(item, "time"), offset).substr(0, 10);
+            auto source = sleep_source(item.contains("sid") ? item["sid"] : nlohmann::json());
+            if (!source.has_value()) {
+                source = sleep_source(payload.contains("did") ? payload["did"] : nlohmann::json());
+            }
+
+            std::vector<std::size_t> candidates;
+            for (std::size_t i = 0; i < sessions.size(); ++i) {
+                const auto& s = sessions[i];
+                const std::string wake_day = s.end_at.substr(0, 10);
+                if (main_sleep_candidate(s) && wake_day == report_day &&
+                    (!source.has_value() || s.source_sid == source)) {
+                    candidates.push_back(i);
+                }
+            }
+
+            if (payload.contains("segment_details") && !payload["segment_details"].is_array()) {
+                continue;
+            }
+            const auto segments = payload.value("segment_details", nlohmann::json::array());
+            if (!segments.empty()) {
+                // Суточный балл описывает главный (самый длинный) сегмент.
+                // Любой невалидный сегмент делает весь отчёт непригодным.
+                std::set<std::pair<std::int64_t, std::int64_t>> boundaries;
+                for (const auto& segment : segments) {
+                    const std::int64_t seg_start = field_epoch(segment, "bedtime");
+                    const std::int64_t seg_end = field_epoch(segment, "wake_up_time");
+                    if (!(seg_end - seg_start > 0 && seg_end - seg_start <= 86400)) {
+                        throw MiFitnessProtocolError("invalid sleep report segment");
+                    }
+                    boundaries.emplace(seg_start, seg_end);
+                }
+                std::int64_t longest = 0;
+                for (const auto& [seg_start, seg_end] : boundaries) {
+                    longest = std::max(longest, seg_end - seg_start);
+                }
+                std::vector<std::pair<std::int64_t, std::int64_t>> main_segments;
+                for (const auto& b : boundaries) {
+                    if (b.second - b.first == longest) {
+                        main_segments.push_back(b);
+                    }
+                }
+                if (main_segments.size() != 1) {
+                    continue;
+                }
+                const auto [seg_start, seg_end] = main_segments[0];
+                std::vector<std::size_t> exact;
+                for (const std::size_t i : candidates) {
+                    if (sessions[i].start_epoch == seg_start && sessions[i].end_epoch == seg_end) {
+                        exact.push_back(i);
+                    }
+                }
+                candidates = exact;
+            } else if (!candidates.empty()) {
+                // Без границ между устройствами не выбираем: один источник и
+                // единственная самая длинная сессия.
+                std::set<std::optional<std::string>> sids;
+                for (const std::size_t i : candidates) {
+                    sids.insert(sessions[i].source_sid);
+                }
+                if (sids.size() != 1) {
+                    continue;
+                }
+                int longest = 0;
+                for (const std::size_t i : candidates) {
+                    longest = std::max(longest, sessions[i].duration_minutes);
+                }
+                std::vector<std::size_t> longest_only;
+                for (const std::size_t i : candidates) {
+                    if (sessions[i].duration_minutes == longest) {
+                        longest_only.push_back(i);
+                    }
+                }
+                candidates = longest_only;
+            }
+            if (candidates.size() == 1) {
+                proposals[candidates[0]].insert(*score);
+            }
+        } catch (const std::exception&) {
+            // Один битый необязательный отчёт не отменяет остальные отчёты и
+            // тем более сессии.
+            continue;
+        }
+    }
+    for (const auto& [index, scores] : proposals) {
+        auto& session = sessions[index];
+        if (!session.sleep_score.has_value() && scores.size() == 1) {
+            session.sleep_score = *scores.begin();
+            session.sleep_score_source = "daily_report";
+        }
+    }
 }
 
 }  // namespace Xiaomi

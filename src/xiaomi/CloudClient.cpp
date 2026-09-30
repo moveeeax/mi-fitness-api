@@ -378,4 +378,50 @@ std::vector<nlohmann::json> CloudClient::fetch_key(std::string_view key,
     return items;
 }
 
+std::vector<nlohmann::json> CloudClient::fetch_daily_sleep_reports(std::string_view start_date,
+                                                                   std::string_view end_date) {
+    const std::string base_url = host_for_region(credentials_.region);
+    const auto [start_time, end_time] = range_to_timestamps(start_date, end_date, credentials_.region);
+
+    std::vector<nlohmann::json> items;
+    std::set<std::string> seen_cursors;
+    std::optional<std::string> next_key;
+    for (int page = 1;; ++page) {
+        if (page > max_pages_) {
+            throw MiFitnessProtocolError("sleep report pagination exceeded the page ceiling");
+        }
+        nlohmann::json payload{{"key", "sleep"},
+                               {"tag", "daily_report"},
+                               {"limit", 100},
+                               {"start_time", start_time},
+                               {"end_time", end_time}};
+        if (next_key.has_value()) {
+            payload["next_key"] = *next_key;
+        }
+        const nlohmann::json result =
+            post_signed(base_url, "/app/v1/data/get_aggregated_fitness_data_by_time", payload);
+        if (!result.contains("data_list") || !result["data_list"].is_array()) {
+            throw MiFitnessProtocolError("invalid daily sleep report response");
+        }
+        for (const auto& item : result["data_list"]) {
+            items.push_back(item);
+        }
+        const bool has_more = result.contains("has_more") && result["has_more"].is_boolean()
+                                  ? result["has_more"].get<bool>()
+                                  : result.value("has_more", 0) != 0;
+        if (!has_more) {
+            return items;
+        }
+        // Курсор отчётов строже обычного: только непустая строка без повторов.
+        if (!result.contains("next_key") || !result["next_key"].is_string()) {
+            throw MiFitnessProtocolError("invalid daily sleep report pagination cursor");
+        }
+        const std::string cursor = result["next_key"].get<std::string>();
+        if (cursor.empty() || !seen_cursors.insert(cursor).second) {
+            throw MiFitnessProtocolError("invalid daily sleep report pagination cursor");
+        }
+        next_key = cursor;
+    }
+}
+
 }  // namespace Xiaomi

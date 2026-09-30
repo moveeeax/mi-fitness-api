@@ -62,6 +62,15 @@ public:
                                           std::optional<std::string_view> region);
 
     /**
+     * @brief Суточные отчёты сна своего аккаунта за диапазон дат пробуждения.
+     *
+     * Отдельный эндпоинт агрегатов с более строгим курсором: нестроковый,
+     * пустой или повторный next_key это ошибка протокола, не тихий обрыв.
+     * Форма data_list обязана быть массивом.
+     */
+    std::vector<nlohmann::json> fetch_daily_sleep_reports(std::string_view start_date, std::string_view end_date);
+
+    /**
      * @brief Подписанный POST к облаку. Возвращает поле result конверта.
      *
      * Ненулевой code это отказ: коды авторизации апстрима (401, 403, -6,
