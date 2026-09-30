@@ -22,7 +22,6 @@
 # Adding a genuinely new dependency? Add the edge here in the same PR and
 # say why in the PR description. Keep this file sorted.
 
-api -> billing
 api -> cache
 api -> core
 api -> database
@@ -35,12 +34,7 @@ api -> security
 api -> utils
 api -> xiaomi
 api -> sync
-billing -> database
-billing -> domain
-billing -> repositories
-billing -> utils
 cache -> utils
-core -> billing
 core -> cache
 core -> database
 core -> email
@@ -51,7 +45,6 @@ core -> security
 core -> tasks
 core -> utils
 database -> utils
-domain -> utils
 email -> domain
 email -> jobs
 email -> repositories

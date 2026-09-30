@@ -57,9 +57,6 @@ data:
         "result_ttl": {{ .Values.jobs.resultTtl }},
         "max_retries": {{ .Values.jobs.maxRetries }}
       },
-      "billing": {
-        "enabled": {{ .Values.billing.enabled }}
-      },
       "worker": {
         "id": {{ .Values.worker.id | quote }},
         "types": [{{- range $i, $t := splitList "," .Values.worker.types }}{{- if gt $i 0 }}, {{ end }}{{ $t | quote }}{{- end }}],

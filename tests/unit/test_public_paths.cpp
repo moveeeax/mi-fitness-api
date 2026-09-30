@@ -60,12 +60,12 @@ TEST_F(PublicPathsTest, ExtraAppendsToBuiltInDefault) {
     // No api block in the file, no override env — the compile-time default is
     // the base; the extra key must ADD to it, not replace it.
     write_config("{}");
-    setenv("API_PUBLIC_PATHS_EXTRA", "/api/v1/billing/paypal/webhook", 1);
+    setenv("API_PUBLIC_PATHS_EXTRA", "/api/v1/some/webhook", 1);
     Config::initialize(test_config_file);
 
     auto cfg = Security::Auth::load_config_from_global();
     EXPECT_TRUE(cfg.public_paths.count("/healthz")) << "default entries must survive";
-    EXPECT_TRUE(cfg.public_paths.count("/api/v1/billing/paypal/webhook"));
+    EXPECT_TRUE(cfg.public_paths.count("/api/v1/some/webhook"));
 }
 
 TEST_F(PublicPathsTest, OverrideStillReplacesWholeDefault) {

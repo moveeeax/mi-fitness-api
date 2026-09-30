@@ -182,31 +182,6 @@ spec:
               value: {{ .Values.jobs.resultTtl | quote }}
             - name: JOBS_MAX_RETRIES
               value: {{ .Values.jobs.maxRetries | quote }}
-            # billing module — master switch plus the non-secret
-            # billing.paypal.* config, matching how the app reads them
-            # (see src/billing/PayPalClient.hpp). The client secret is the
-            # only true credential and comes from the chart Secret.
-            - name: BILLING_ENABLED
-              value: {{ .Values.billing.enabled | quote }}
-            {{- if .Values.billing.enabled }}
-            - name: PAYPAL_ENV
-              value: {{ .Values.billing.paypal.environment | quote }}
-            - name: PAYPAL_CLIENT_ID
-              value: {{ .Values.billing.paypal.clientId | quote }}
-            - name: PAYPAL_WEBHOOK_ID
-              value: {{ .Values.billing.paypal.webhookId | quote }}
-            - name: PAYPAL_RETURN_URL
-              value: {{ .Values.billing.paypal.returnUrl | quote }}
-            - name: PAYPAL_CANCEL_URL
-              value: {{ .Values.billing.paypal.cancelUrl | quote }}
-            {{- if .Values.billing.paypal.clientSecret }}
-            - name: PAYPAL_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "mi-fitness-api.fullname" . }}
-                  key: paypal-client-secret
-            {{- end }}
-            {{- end }}
             # Rate limiting — code defaults RATE_LIMIT_ENABLED to false, so a
             # prod pod without this runs /api/auth/login unthrottled. Inject
             # explicitly. fail_open=true means Redis outages don't block traffic.

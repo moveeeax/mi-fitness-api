@@ -24,7 +24,6 @@
 
 #include <nlohmann/json.hpp>
 
-#include "billing/PayPalClient.hpp"
 #include "cache/Cache.hpp"
 #include "database/Database.hpp"
 #include "database/Migrations.hpp"
@@ -110,14 +109,6 @@ void Application::initialize(const std::string& config_path, InitMode mode) {
         // Jobs::submit("email", payload) → worker → Mailer::send.
         // It's also useful in synchronous paths during dev.
         Email::initialize();
-        // Billing after Mailer (its flows enqueue emails). initialize()
-        // validates billing.paypal.* and THROWS when billing.enabled=true
-        // but client_id/client_secret/webhook_id are empty — an enabled
-        // billing module with missing credentials fails HERE, at boot,
-        // instead of 500ing on the first checkout or webhook delivery.
-        // With billing disabled it installs an inert default client and
-        // validates nothing (see src/billing/PayPalClient.hpp).
-        Billing::initialize();
         register_default_health_checks_();
 
         initialized = true;
