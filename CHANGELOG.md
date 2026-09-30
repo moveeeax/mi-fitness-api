@@ -6,6 +6,11 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.3] — 2026-09-30
+
+### Fixed
+- a backfill day cut by the sync chunk boundary is no longer overwritten by the next chunk's partial slice: daily activity aggregates over the whole requested range before the upsert
+
 ## [1.8.2] — 2026-09-30
 
 ### Fixed
