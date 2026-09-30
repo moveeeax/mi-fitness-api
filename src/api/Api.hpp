@@ -34,6 +34,7 @@
 #include "api/BillingController.hpp"
 #include "api/HealthController.hpp"
 #include "api/JobsController.hpp"
+#include "api/SyncController.hpp"
 #include "api/Middleware.hpp"
 #include "api/XiaomiController.hpp"
 

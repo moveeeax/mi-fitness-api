@@ -79,6 +79,8 @@ inline const std::vector<EndpointInfo>& get_endpoints() {
         {"POST", "/api/v1/admin/billing/users/{id}/adjust", "Admin: manually adjust a user's wallet balance"},
         {"GET", "/api/v1/admin/billing/metrics", "Admin: billing metrics (revenue, conversion, refunds)"},
         {"GET", "/api/v1/xiaomi/probe", "XiaomiController::listXiaomi"},
+        {"POST", "/api/v1/sync", "Sync: enqueue a cloud sync run"},
+        {"GET", "/api/v1/sync/{id}", "Sync: read a run's journal entry"},
     };
     return endpoints;
 }

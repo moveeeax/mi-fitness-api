@@ -545,6 +545,63 @@ components:
 
 # -----------------------------------------------------------------------------
 paths:
+  /api/v1/sync:
+    post:
+      summary: Enqueue a cloud sync run
+      description: Creates a sync_runs journal row and puts an xiaomi_sync job on the queue. The run executes in the worker; poll the journal by run_id.
+      tags: [sync]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                from: { type: string, format: date }
+                to: { type: string, format: date }
+                data_types: { type: array, items: { type: string } }
+      responses:
+        '202':
+          description: Run queued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [run_id, status]
+                    properties:
+                      run_id: { type: integer }
+                      status: { type: string }
+        '400':
+          description: Malformed range or unknown data type
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/v1/sync/{id}:
+    get:
+      summary: Read a sync run's journal entry
+      tags: [sync]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Journal entry with per-type counters or error classes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: object }
+        '404':
+          description: Unknown run id
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /api/v1/xiaomi/probe:
     get:
       summary: Probe the Mi Fitness cloud — login, fetch one data key, count records
