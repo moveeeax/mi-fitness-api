@@ -61,6 +61,20 @@ public:
         });
     }
 
+    /// Пометить skipped только запуск, всё ещё стоящий в очереди. Повторно
+    /// доставленное задание завершённого запуска не должно переписывать его
+    /// журнал (Important 4 финального обзора: та же дыра со стороны skip).
+    void skip_if_queued(long id, const nlohmann::json& result) {
+        Database::get().execute_write([&](auto& txn) {
+            txn.exec_params(
+                "UPDATE sync_runs SET status = 'skipped', result = $2::jsonb, finished_at = now() "
+                "WHERE id = $1 AND status = 'queued'",
+                id,
+                result.dump());
+            return true;
+        });
+    }
+
     std::optional<nlohmann::json> get(long id) {
         return Database::get().execute_read([&](auto& txn) -> std::optional<nlohmann::json> {
             auto r = txn.exec_params(

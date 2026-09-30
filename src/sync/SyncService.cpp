@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <set>
 #include <utility>
 
@@ -62,16 +63,48 @@ std::vector<Chunk> split_range(const std::string& from, const std::string& to, i
 }
 
 /// Атомарный переход queued -> running. false, когда другой запуск уже идёт.
-bool try_start(long run_id) {
+///
+/// Перед захватом протухшие running помечаются interrupted: воркер, убитый
+/// посреди синка (OOM, вытеснение узла), не снимает свою строку сам, и без
+/// этого шага частичный индекс one_running_sync_run глушил бы все будущие
+/// запуски навсегда (Critical 2 финального обзора). Порог протухания больше
+/// максимальной честной длительности: потолок на тип, помноженный на число
+/// типов, плюс запас.
+bool try_start(long run_id, long stale_seconds) {
     try {
         return Database::get().execute_write([&](auto& txn) {
-            auto r = txn.exec_params("UPDATE sync_runs SET status = 'running' WHERE id = $1 RETURNING id", run_id);
+            txn.exec_params(
+                "UPDATE sync_runs SET status = 'interrupted', finished_at = now() "
+                "WHERE status = 'running' AND started_at < now() - make_interval(secs => $1::double precision)",
+                stale_seconds);
+            // Только из queued: повторно доставленное задание не оживляет
+            // закрытый запуск и не переписывает его журнал (Important 4).
+            auto r = txn.exec_params(
+                "UPDATE sync_runs SET status = 'running', started_at = now() "
+                "WHERE id = $1 AND status = 'queued' RETURNING id",
+                run_id);
             return !r.empty();
         });
     } catch (const std::exception&) {
         // Нарушение частичного уникального индекса one_running_sync_run.
         return false;
     }
+}
+
+/// Дата YYYY-MM-DD, сдвинутая на days суток. Формат уже проверен вызывающим.
+std::string shift_date(const std::string& date, int days) {
+    std::chrono::year_month_day ymd{std::chrono::year(std::stoi(date.substr(0, 4))),
+                                    std::chrono::month(static_cast<unsigned>(std::stoi(date.substr(5, 2)))),
+                                    std::chrono::day(static_cast<unsigned>(std::stoi(date.substr(8, 2))))};
+    const auto shifted = std::chrono::year_month_day(std::chrono::sys_days(ymd) + std::chrono::days(days));
+    char out[16];
+    std::snprintf(out,
+                  sizeof(out),
+                  "%04d-%02u-%02u",
+                  static_cast<int>(shifted.year()),
+                  static_cast<unsigned>(shifted.month()),
+                  static_cast<unsigned>(shifted.day()));
+    return out;
 }
 
 void bump_sync_state(const std::string& data_type, long added) {
@@ -101,13 +134,6 @@ nlohmann::json SyncService::run(long run_id,
     Repositories::SyncRunRepository runs;
     nlohmann::json result = nlohmann::json::object();
 
-    if (!try_start(run_id)) {
-        // Другой запуск держит running: честный skipped, облако не трогаем.
-        result["skipped_reason"] = "another sync run is in progress";
-        runs.finish(run_id, "skipped", result);
-        return result;
-    }
-
     int chunk_days = 7;
     long type_timeout = 180;
     if (Config::is_initialized()) {
@@ -115,13 +141,33 @@ nlohmann::json SyncService::run(long run_id,
         type_timeout = Config::get().get<long>("xiaomi.sync_type_timeout_seconds", "MI_FITNESS_SYNC_TYPE_TIMEOUT", 180);
     }
 
+    const long stale_seconds = type_timeout * static_cast<long>(kAllDataTypes.size()) + 600;
+    if (!try_start(run_id, stale_seconds)) {
+        // Другой запуск держит running: честный skipped, облако не трогаем.
+        // Журнал трогается только у стоящего в очереди: завершённый запуск
+        // повторная доставка задания не переписывает.
+        result["skipped_reason"] = "another sync run is in progress";
+        runs.skip_if_queued(run_id, result);
+        return result;
+    }
+
     Xiaomi::CloudClient client(transport_, credentials_, on_rotate_);
     bool logged_in = false;
+    bool auth_dead = false;
     bool any_failed = false;
 
     for (const auto& data_type : data_types) {
         auto& entry = result[data_type];
         const auto type_started = std::chrono::steady_clock::now();
+        // Отказ авторизации лечится свежим токеном, а не повтором: после
+        // первого auth-отказа остальные типы закрываются без сети, иначе
+        // один запуск сжигает до восьми входов с мёртвым токеном
+        // (Important 5 финального обзора).
+        if (auth_dead) {
+            any_failed = true;
+            entry["error"] = "auth";
+            continue;
+        }
         try {
             if (!logged_in) {
                 client.login();
@@ -175,7 +221,11 @@ nlohmann::json SyncService::run(long run_id,
                     }
                     if (!report_from.empty()) {
                         try {
-                            const auto reports = client.fetch_daily_sleep_reports(report_from, report_to);
+                            // День запаса с обеих сторон, как у эталона: пояс
+                            // отчёта может не совпадать с поясом региона, и
+                            // отчёт крайнего дня лежит вне узкого окна.
+                            const auto reports =
+                                client.fetch_daily_sleep_reports(shift_date(report_from, -1), shift_date(report_to, 1));
                             const int offset =
                                 credentials_.region.empty() || credentials_.region == "cn" ? 8 * 3600 : 0;
                             Xiaomi::apply_daily_sleep_scores(sessions, reports, offset);
@@ -232,6 +282,11 @@ nlohmann::json SyncService::run(long run_id,
             if (data_type == "daily_activity") {
                 const std::string& user = client.credentials().user_id;
                 auto normalized = Xiaomi::normalize_daily_activity(activity_steps, activity_calories, user);
+                // Окно режется в поясе региона, и минуты соседних локальных
+                // суток попадают внутрь. Дни вне [from, to] заведомо
+                // частичные: их upsert затёр бы полный день в базе огрызком
+                // (Critical 1 финального обзора).
+                std::erase_if(normalized.days, [&](const auto& day) { return day.date < from || day.date > to; });
                 const auto c = Repositories::ActivityRepository().upsert(normalized.days);
                 counts.added += c.added;
                 counts.updated += c.updated;
@@ -248,6 +303,7 @@ nlohmann::json SyncService::run(long run_id,
             bump_sync_state(data_type, counts.added);
         } catch (const Xiaomi::MiFitnessAuthError& e) {
             any_failed = true;
+            auth_dead = !logged_in;
             entry["error"] = "auth";
             spdlog::warn("sync {}: auth failure: {}", data_type, e.what());
         } catch (const Xiaomi::MiFitnessProtocolError& e) {
