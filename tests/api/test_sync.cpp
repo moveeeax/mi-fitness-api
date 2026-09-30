@@ -113,3 +113,13 @@ TEST_F(SyncApiTest, StatusRejectsUnknownAndMalformedIds) {
     EXPECT_EQ(get_status("999999")->statusCode(), k404NotFound);
     EXPECT_EQ(get_status("not-a-number")->statusCode(), k400BadRequest);
 }
+
+// Minor обзора плана 2: дубль в data_types прогонял тип дважды, вторая
+// запись результата затирала первую.
+TEST_F(SyncApiTest, EnqueueRejectsDuplicateDataTypes) {
+    const auto resp = post_sync({{"from", "2026-09-22"}, {"to", "2026-09-23"}, {"data_types", {"sleep", "sleep"}}});
+    ASSERT_NE(resp, nullptr);
+    EXPECT_EQ(resp->statusCode(), k400BadRequest);
+    const auto body = json::parse(std::string(resp->body()));
+    EXPECT_EQ(body["error"], "duplicate_data_type");
+}

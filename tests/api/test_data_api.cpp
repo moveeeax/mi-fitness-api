@@ -192,3 +192,73 @@ TEST_F(DataApiTest, SummaryJoinsTheDay) {
     EXPECT_EQ(row["sleep_score"], 77);
     EXPECT_EQ(row["resting_bpm"], 55);
 }
+
+TEST_F(DataApiTest, CoverageReportsPerTypeBounds) {
+    seed_activity("2026-09-20", 1000);
+    seed_activity("2026-09-25", 3000);
+    seed_heart_rate("2026-09-21T10:00:00+00:00", 70, "passive");
+
+    HttpResponsePtr resp;
+    controller.coverage(TestHelpers::make_request(Get), [&](const HttpResponsePtr& r) { resp = r; });
+    ASSERT_NE(resp, nullptr);
+    ASSERT_EQ(resp->statusCode(), k200OK) << resp->body();
+    const auto body = body_of(resp);
+    const auto& act = body["data"]["daily_activity"];
+    EXPECT_EQ(act["first_date"], "2026-09-20");
+    EXPECT_EQ(act["last_date"], "2026-09-25");
+    EXPECT_EQ(act["records"], 2);
+    const auto& hr = body["data"]["heart_rate"];
+    EXPECT_EQ(hr["records"], 1);
+    // Пустой тип это NULL-границы, не мусор.
+    EXPECT_TRUE(body["data"]["workouts"]["first_date"].is_null());
+    EXPECT_EQ(body["data"]["workouts"]["records"], 0);
+}
+
+TEST_F(DataApiTest, ExportJsonCarriesTheBridgeEnvelope) {
+    seed_activity("2026-09-21", 5000);
+    seed_heart_rate("2026-09-21T10:00:00+00:00", 70, "passive");
+
+    auto req = ranged("2026-09-21", "2026-09-21");
+    req->setParameter("format", "json");
+    HttpResponsePtr resp;
+    controller.exportData(req, [&](const HttpResponsePtr& r) { resp = r; });
+    ASSERT_NE(resp, nullptr);
+    ASSERT_EQ(resp->statusCode(), k200OK) << resp->body();
+    const auto body = body_of(resp);
+    EXPECT_EQ(body["schema_version"], "1.0");
+    EXPECT_EQ(body["source"], "mi-fitness-api");
+    EXPECT_EQ(body["filters"]["start_date"], "2026-09-21");
+    ASSERT_TRUE(body["records"].contains("daily_activity"));
+    EXPECT_EQ(body["records"]["daily_activity"].size(), 1u);
+    EXPECT_EQ(body["records"]["heart_rate"].size(), 1u);
+}
+
+TEST_F(DataApiTest, ExportCsvNeedsATypeAndEscapesFormulas) {
+    Domain::DailyActivity d;
+    d.user_id = "42";
+    d.date = "2026-09-21";
+    d.steps = 5000;
+    d.timezone = "=SUM(A1:A9)";  // формула в строковом поле не должна выжить
+    Repositories::ActivityRepository().upsert({d});
+
+    auto no_type = ranged("2026-09-21", "2026-09-21");
+    no_type->setParameter("format", "csv");
+    HttpResponsePtr bad;
+    controller.exportData(no_type, [&](const HttpResponsePtr& r) { bad = r; });
+    ASSERT_NE(bad, nullptr);
+    EXPECT_EQ(bad->statusCode(), k400BadRequest);
+
+    auto req = ranged("2026-09-21", "2026-09-21");
+    req->setParameter("format", "csv");
+    req->setParameter("type", "daily_activity");
+    HttpResponsePtr resp;
+    controller.exportData(req, [&](const HttpResponsePtr& r) { resp = r; });
+    ASSERT_NE(resp, nullptr);
+    ASSERT_EQ(resp->statusCode(), k200OK) << resp->body();
+    const std::string body(resp->body());
+    EXPECT_NE(body.find("date"), std::string::npos);
+    EXPECT_NE(body.find("5000"), std::string::npos);
+    // Ведущий знак равенства экранирован апострофом.
+    EXPECT_EQ(body.find(",=SUM"), std::string::npos);
+    EXPECT_NE(body.find("'=SUM"), std::string::npos);
+}
