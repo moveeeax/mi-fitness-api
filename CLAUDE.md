@@ -82,7 +82,7 @@ gates by construction. Hand-rolled versions usually don't.
    the `scripts/bench-incremental.sh` threshold get their non-template
    bodies de-inlined into a paired `.cpp` compiled ONCE into the `app_core`
    STATIC library (CMake picks up any `src/**/*.cpp` via GLOB — no CMake
-   edit needed; billing is de-inlined, more modules follow by measured
+   edit needed; heavy modules de-inline by measured
    weight). Drogon route macros (`ADD_METHOD_TO`) always stay in the
    controller `.hpp` — the route gates grep only headers.
 4. **One error shape:** `{error, status, message, ...}` everywhere — use
@@ -157,7 +157,7 @@ Postgres/Redis, CI_REQUIRE_INFRA=1), gitleaks, helm-render,
 the OpenAPI-drift gate and the gate selftest; C++ compiles in CI go through sccache backed by
 the Actions cache. Trivy scans images in the release pipeline
 (`.github/workflows/release.yml`), not in per-PR CI. The heavy jobs
-(build-and-test, clang-tidy, sanitizers, tsan, runtime-smoke, frontend,
+(build-and-test, clang-tidy, sanitizers, tsan, runtime-smoke,
 gate-selftest) SELF-scope: they always start (required-check semantics stay
 honest — never a `paths:` filter), diff the change set themselves, and exit
 green in seconds when their input paths are untouched (docs/CI-PROFILES.md
@@ -201,8 +201,7 @@ CI; the fork enables it per `docs/RENDER-GATE.md`.
   second-or-later write counted from zero; root cause never found — forensics
   in the site fork's commit b676430). Pattern instead: `INSERT ... ON CONFLICT
   DO NOTHING` → `SELECT ... FOR UPDATE` → compute the new value in C++ →
-  plain `UPDATE` — canonical in-repo example: the wallet ledger in
-  `src/billing/Wallet.hpp`.
+  plain `UPDATE`.
 - Don't use inja's default `{#`/`#}` comment markers in templates that carry
   TeX-like content — a `#1`-style macro parameter (`{#1}`) opens an inja
   comment that never closes and the whole render dies with a parser error at
