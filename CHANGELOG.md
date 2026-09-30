@@ -6,6 +6,14 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-09-30
+
+### Added
+- Синк данных Mi Fitness в Postgres: нормализация восьми типов по правилам эталона, журнал запусков sync_runs, воркер с обработчиком xiaomi_sync, маршруты POST /api/v1/sync и GET /api/v1/sync/{id}
+
+### Fixed
+- Временный каталог загрузок drogon увезён в /tmp: дефолтный ./uploads упирался в read-only корень контейнера и сыпал 256 строк ошибок на каждый старт
+
 ## [1.7.3] — 2026-09-30
 
 ### Fixed
