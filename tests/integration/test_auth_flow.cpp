@@ -7,8 +7,6 @@
  * revocation. Skips when those aren't reachable.
  *
  * Coverage:
- *   - register → 201 + user row created (unconfirmed)
- *   - register again with same email → 409
  *   - login bad password → 401 generic
  *   - login good password → 200 + Set-Cookie
  *   - me with valid principal → 200 + user
@@ -28,6 +26,7 @@
 
 #include "api/AuthController.hpp"
 #include "database/Database.hpp"
+#include "repositories/RoleRepository.hpp"
 #include "repositories/UserRepository.hpp"
 #include "security/Password.hpp"
 #include "test_helpers.hpp"
@@ -60,67 +59,30 @@ protected:
         TestHelpers::CoreBackedTest::SetUp();
         if (::testing::Test::IsSkipped())
             return;
-        // Wipe users between tests so create() / register() don't conflict.
+        // Wipe users between tests so create() doesn't conflict.
         TestHelpers::truncate_users();
     }
 
     static HttpRequestPtr make_post(const json& body) { return TestHelpers::post_json(body); }
+
+    // Регистрация из API удалена зачисткой 2026-09-30: пользователи заводятся
+    // админом. Тестам достаточно строки в базе с захешированным паролем.
+    static void seed_user(const std::string& email, const std::string& password) {
+        Repositories::RoleRepository roles;
+        auto role = roles.find_default();
+        ASSERT_TRUE(role.has_value());
+        Repositories::UserRepository repo;
+        repo.create(email,
+                    Security::Password::hash(password),
+                    std::nullopt,
+                    std::nullopt,
+                    role->id,
+                    /*confirmed=*/true);
+    }
 };
 
-TEST_F(AuthFlowTest, registerCreatesUnconfirmedUser) {
-    auto req = make_post({{"email", "alice@example.com"}, {"password", "correct horse 1"}});
-    HttpResponsePtr resp;
-    controller.registerUser(req, [&](const HttpResponsePtr& r) { resp = r; });
-
-    ASSERT_NE(resp, nullptr);
-    EXPECT_EQ(resp->statusCode(), k201Created);
-
-    auto body = json::parse(std::string(resp->body()));
-    ASSERT_TRUE(body.contains("user"));
-    EXPECT_EQ(body["user"]["email"].get<std::string>(), "alice@example.com");
-    EXPECT_EQ(body["user"]["confirmed"].get<bool>(), false);
-    ASSERT_TRUE(body["user"].contains("role"));
-
-    // Verify the row really landed.
-    Repositories::UserRepository repo;
-    auto found = repo.find_by_email("alice@example.com");
-    ASSERT_TRUE(found.has_value());
-    EXPECT_FALSE(found->confirmed);
-    EXPECT_TRUE(found->password_hash.has_value());
-    EXPECT_TRUE(Security::Password::looks_hashed(*found->password_hash));
-}
-
-TEST_F(AuthFlowTest, registerSameEmailTwiceConflicts) {
-    auto first = make_post({{"email", "bob@example.com"}, {"password", "12345678"}});
-    HttpResponsePtr r1, r2;
-    controller.registerUser(first, [&](const HttpResponsePtr& r) { r1 = r; });
-    ASSERT_NE(r1, nullptr);
-    EXPECT_EQ(r1->statusCode(), k201Created);
-
-    // Password must pass the 8-char minimum so the request reaches the
-    // duplicate-email check instead of dying at validation.
-    auto second = make_post({{"email", "bob@example.com"}, {"password", "another-pass"}});
-    controller.registerUser(second, [&](const HttpResponsePtr& r) { r2 = r; });
-    ASSERT_NE(r2, nullptr);
-    EXPECT_EQ(r2->statusCode(), k409Conflict);
-    auto body = json::parse(std::string(r2->body()));
-    EXPECT_EQ(body["error"].get<std::string>(), "email_taken");
-}
-
-TEST_F(AuthFlowTest, registerRejectsShortPassword) {
-    auto req = make_post({{"email", "shorty@example.com"}, {"password", "abc"}});
-    HttpResponsePtr resp;
-    controller.registerUser(req, [&](const HttpResponsePtr& r) { resp = r; });
-    ASSERT_NE(resp, nullptr);
-    EXPECT_EQ(resp->statusCode(), k400BadRequest);
-}
-
 TEST_F(AuthFlowTest, loginWrongPasswordReturns401Generic) {
-    // First register.
-    auto reg = make_post({{"email", "carol@example.com"}, {"password", "rightpassword"}});
-    HttpResponsePtr regr;
-    controller.registerUser(reg, [&](const HttpResponsePtr& r) { regr = r; });
-    ASSERT_EQ(regr->statusCode(), k201Created);
+    seed_user("carol@example.com", "rightpassword");
 
     // Wrong password.
     auto bad = make_post({{"email", "carol@example.com"}, {"password", "WRONGpassword"}});
@@ -143,10 +105,7 @@ TEST_F(AuthFlowTest, loginWrongPasswordReturns401Generic) {
 }
 
 TEST_F(AuthFlowTest, loginSucceedsAndSetsCookies) {
-    auto reg = make_post({{"email", "dan@example.com"}, {"password", "rightpassword"}});
-    HttpResponsePtr regr;
-    controller.registerUser(reg, [&](const HttpResponsePtr& r) { regr = r; });
-    ASSERT_EQ(regr->statusCode(), k201Created);
+    seed_user("dan@example.com", "rightpassword");
 
     auto good = make_post({{"email", "dan@example.com"}, {"password", "rightpassword"}});
     HttpResponsePtr resp;
@@ -179,10 +138,7 @@ TEST_F(AuthFlowTest, meReturnsUserForValidPrincipal) {
     // Create a user, then synthesize a principal in req->attributes(),
     // mirroring what the auth middleware would have done after verifying
     // an access cookie.
-    auto reg = make_post({{"email", "eve@example.com"}, {"password", "rightpassword"}});
-    HttpResponsePtr regr;
-    controller.registerUser(reg, [&](const HttpResponsePtr& r) { regr = r; });
-    ASSERT_EQ(regr->statusCode(), k201Created);
+    seed_user("eve@example.com", "rightpassword");
 
     Repositories::UserRepository repo;
     auto user = repo.find_by_email("eve@example.com");

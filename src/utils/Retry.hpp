@@ -4,7 +4,7 @@
  * @details The callable is re-invoked up to max_attempts times when the
  *          classifier marks the raised exception as transient. Backoff is
  *          exponential with optional full-jitter. Intended for wrapping
- *          database, cache and messaging calls that may hit momentary
+ *          database and cache calls that may hit momentary
  *          network or connection-lifecycle errors.
  *
  * Usage:
@@ -95,7 +95,7 @@ inline int compute_delay_ms(int attempt_zero_based, const Policy& p) {
  * @brief Call @p fn, retrying transient failures up to @p p.max_attempts.
  * @tparam Fn    Callable returning any type (including void).
  * @tparam Pred  Callable bool(const std::exception&) classifying transience.
- * @param component Short label used for logs ("db", "redis", "kafka").
+ * @param component Short label used for logs ("db", "redis").
  * @throws The last exception if @p p.max_attempts is exhausted or the
  *         exception is classified as non-transient.
  */

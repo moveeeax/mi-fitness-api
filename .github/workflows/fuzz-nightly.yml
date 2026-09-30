@@ -1,6 +1,6 @@
 name: Fuzz nightly
 
-# libFuzzer over the byte-facing parsers (traceparent header, PayPal decimal
+# libFuzzer over the byte-facing parsers (traceparent header,
 # amounts, config ${VAR} expansion, request-path matching). Nightly, not
 # per-PR: fuzzing pays off through accumulated wall-clock and a GROWING
 # corpus, so the corpus is carried between runs via the Actions cache and
@@ -72,7 +72,7 @@ jobs:
         run: |
           set -uo pipefail
           status=0
-          for t in fuzz_traceparent fuzz_decimal_cents fuzz_config_expand fuzz_path_match; do
+          for t in fuzz_traceparent fuzz_config_expand fuzz_path_match; do
             echo "::group::$t (${SECONDS_PER_TARGET}s)"
             mkdir -p "fuzz-corpus/$t" "fuzz-reproducers/$t"
             # First dir is read-write (new inputs land there and get cached);

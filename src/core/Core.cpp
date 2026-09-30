@@ -2,7 +2,7 @@
  * @file Core.cpp
  * @brief Bodies for src/core/Core.hpp — compiled once into app_core. This is
  *        the only core TU that sees the 13 subsystem headers (database/pqxx,
- *        cache, jobs, Kafka, PayPal, mailer, storage, OTel/prometheus, ...);
+ *        cache, jobs, storage, OTel/prometheus, ...);
  *        the header no longer exposes them to including TUs. Every contract
  *        is documented on the declarations in the header; the comments here
  *        explain the boot/teardown mechanics in place.
@@ -24,14 +24,10 @@
 
 #include <nlohmann/json.hpp>
 
-#include "billing/PayPalClient.hpp"
 #include "cache/Cache.hpp"
 #include "database/Database.hpp"
 #include "database/Migrations.hpp"
-#include "email/Mailer.hpp"
 #include "jobs/Jobs.hpp"
-#include "jobs/Outbox.hpp"
-#include "messaging/Messaging.hpp"
 #include "observability/Observability.hpp"
 #include "security/Auth.hpp"
 #include "security/Idempotency.hpp"
@@ -100,26 +96,12 @@ void Application::initialize(const std::string& config_path, InitMode mode) {
 
         init_cache_(cfg);
         if (mode != InitMode::Worker) {
-            init_messaging_(cfg);
             Tasks::initialize();
-            register_token_reaper_();
             register_db_pool_metric_(cfg);
             register_replication_lag_metric_(cfg);
         }
         init_security_();
         init_jobs_(cfg);
-        // Mailer comes up after Jobs because the typical flow is
-        // Jobs::submit("email", payload) → worker → Mailer::send.
-        // It's also useful in synchronous paths during dev.
-        Email::initialize();
-        // Billing after Mailer (its flows enqueue emails). initialize()
-        // validates billing.paypal.* and THROWS when billing.enabled=true
-        // but client_id/client_secret/webhook_id are empty — an enabled
-        // billing module with missing credentials fails HERE, at boot,
-        // instead of 500ing on the first checkout or webhook delivery.
-        // With billing disabled it installs an inert default client and
-        // validates nothing (see src/billing/PayPalClient.hpp).
-        Billing::initialize();
         register_default_health_checks_();
 
         initialized = true;
@@ -377,32 +359,6 @@ void Application::init_cache_(Config::AppConfig& cfg) {
     }
 }
 
-std::vector<std::string> Application::read_kafka_topics_(Config::AppConfig& cfg) {
-    std::vector<std::string> topics;
-    if (!read_string_array_(cfg, {"messaging", "kafka", "consumer", "topics"}, topics))
-        topics.push_back("default_topic");
-    return topics;
-}
-
-void Application::init_messaging_(Config::AppConfig& cfg) {
-    if (!cfg.get<bool>("messaging.enabled", "MESSAGING_ENABLED", false))
-        return;
-
-    Messaging::initialize();
-    auto brokers = cfg.get<std::string>("messaging.kafka.brokers", "KAFKA_BROKERS", "localhost:9092");
-
-    if (cfg.get<bool>("messaging.kafka.producer.enabled", "KAFKA_PRODUCER_ENABLED", false)) {
-        auto producer_id =
-            cfg.get<std::string>("messaging.kafka.producer.client_id", "KAFKA_PRODUCER_ID", "mi_fitness_api_producer");
-        Messaging::get().initialize_producer(brokers, producer_id);
-    }
-    if (cfg.get<bool>("messaging.kafka.consumer.enabled", "KAFKA_CONSUMER_ENABLED", false)) {
-        auto group_id =
-            cfg.get<std::string>("messaging.kafka.consumer.group_id", "KAFKA_GROUP_ID", "cpp_consumer_group");
-        Messaging::get().initialize_consumer(brokers, group_id, read_kafka_topics_(cfg));
-    }
-}
-
 void Application::init_security_() {
     Security::Auth::initialize();
     Security::RateLimit::initialize();
@@ -547,23 +503,6 @@ void Application::register_replication_lag_metric_(Config::AppConfig& cfg) {
     });
 }
 
-void Application::register_token_reaper_() {
-    if (!Tasks::is_initialized() || !Database::is_initialized())
-        return;
-    Tasks::schedule_recurring("used_tokens_reaper", std::chrono::hours(1), [] {
-        if (!Database::is_initialized())
-            return;
-        try {
-            Database::get().execute_write([](auto& txn) {
-                txn.exec("DELETE FROM used_tokens WHERE expires_at < now()");
-                return 0;
-            });
-        } catch (const std::exception& e) {
-            spdlog::warn("used_tokens reaper failed: {}", e.what());
-        }
-    });
-}
-
 void Application::register_default_health_checks_() {
     if (Database::is_initialized()) {
         register_health_check("database", [] { return Database::get().health_check(); });
@@ -578,8 +517,6 @@ void Application::register_default_health_checks_() {
     // DEGRADED probes — their outage should show in /health but must NOT
     // pull the pod out of rotation via /ready. Register them once those
     // modules expose a cheap connectivity check, e.g.:
-    //   if (Messaging::is_initialized())
-    //       register_health_check("kafka", [] { return Messaging::get().health_check(); }, /*critical=*/false);
 }
 
 void Application::init_jobs_(Config::AppConfig& cfg) {
@@ -598,31 +535,6 @@ void Application::init_jobs_(Config::AppConfig& cfg) {
     Jobs::get().set_visibility_timeout(visibility);
     register_dlq_metric_(cfg);
     register_queue_depth_metric_(cfg);
-    register_outbox_drain_(cfg);
-}
-
-void Application::register_outbox_drain_(Config::AppConfig& cfg) {
-    // Tasks is only up in server mode (worker_main runs its own loop), and the
-    // drain needs both stores: rows come from Postgres, jobs land in Redis.
-    if (!Tasks::is_initialized() || !Database::is_initialized() || !Jobs::is_initialized())
-        return;
-    const int interval_sec = cfg.get<int>("outbox.drain_interval_sec", "OUTBOX_DRAIN_INTERVAL_SEC", 0);
-    if (interval_sec <= 0)
-        return;  // opt-in: the outbox table sits inert until a deploy enables draining
-    spdlog::info("Transactional outbox drain enabled: every {}s", interval_sec);
-    Tasks::schedule_recurring("outbox_drain", std::chrono::seconds(interval_sec), [] {
-        if (!Database::is_initialized() || !Jobs::is_initialized())
-            return;
-        try {
-            auto stats = Jobs::Outbox::drain();
-            if (stats.failed > 0)
-                spdlog::warn("outbox drain: {} row(s) failed to submit (will retry)", stats.failed);
-        } catch (const std::exception& e) {
-            // DB hiccup — rows stay put, the next tick retries. Losing a tick
-            // never loses an event; that's the whole point of the table.
-            spdlog::warn("outbox drain failed: {}", e.what());
-        }
-    });
 }
 
 void Application::register_health_check(std::string name, HealthFn probe, bool critical) {
@@ -671,8 +583,6 @@ void Application::shutdown() {
     // unconditionally is safe and leaves nothing dangling for a retry.
     spdlog::info("=== Application Shutdown Started ===");
 
-    if (Email::is_initialized())
-        Email::shutdown();
     if (Jobs::is_initialized())
         Jobs::shutdown();
     if (Security::Idempotency::is_initialized())
@@ -683,8 +593,6 @@ void Application::shutdown() {
         Security::Auth::shutdown();
     if (Tasks::is_initialized())
         Tasks::shutdown();
-    if (Messaging::is_initialized())
-        Messaging::shutdown();
     if (Cache::is_initialized())
         Cache::shutdown();
     if (Migrations::is_initialized())

@@ -13,10 +13,10 @@
 
 #include <nlohmann/json.hpp>
 
-#include "email/AccountEmailWorker.hpp"  // Email::AccountEmails::kJobType
 #include "jobs/BuiltinHandlers.hpp"
 #include "jobs/Dispatcher.hpp"
 #include "jobs/Job.hpp"
+#include "jobs/XiaomiSyncHandler.hpp"
 
 using nlohmann::json;
 
@@ -70,12 +70,12 @@ TEST(JobDispatchTest, UnregisteredReportsTypesWithoutHandlers) {
 
 TEST(JobDispatchTest, BuiltinHandlersAreRegistered) {
     // Guards the if-ladder→Dispatcher refactor: dropping/renaming a built-in
-    // (esp. account_email) would silently dead-letter real jobs with no other
+    // (esp. xiaomi_sync) would silently dead-letter real jobs with no other
     // failing test. register_builtin_handlers() was extracted from
     // worker_main.cpp into the jobs module for exactly this reason.
     Jobs::register_builtin_handlers();
     auto& d = Jobs::Dispatcher::get();
-    EXPECT_TRUE(d.has_handler(Email::AccountEmails::kJobType));
+    EXPECT_TRUE(d.has_handler(Jobs::XiaomiSync::kJobType));
     EXPECT_TRUE(d.has_handler("echo"));
     EXPECT_TRUE(d.has_handler("slow"));
     EXPECT_TRUE(d.has_handler("fail"));

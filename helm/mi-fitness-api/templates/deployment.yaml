@@ -175,21 +175,6 @@ spec:
             # instance is shared with another app. See externalRedis.db.
             - name: REDIS_DB
               value: {{ .Values.externalRedis.db | default 0 | quote }}
-            # Kafka / Messaging
-            - name: MESSAGING_ENABLED
-              value: {{ .Values.externalKafka.enabled | quote }}
-            {{- if .Values.externalKafka.enabled }}
-            - name: KAFKA_BROKERS
-              value: {{ .Values.externalKafka.brokers | quote }}
-            - name: KAFKA_PRODUCER_ENABLED
-              value: {{ .Values.externalKafka.producerEnabled | quote }}
-            - name: KAFKA_PRODUCER_ID
-              value: {{ .Values.externalKafka.producerId | quote }}
-            - name: KAFKA_CONSUMER_ENABLED
-              value: {{ .Values.externalKafka.consumerEnabled | quote }}
-            - name: KAFKA_GROUP_ID
-              value: {{ .Values.externalKafka.consumerGroupId | quote }}
-            {{- end }}
             # Jobs
             - name: JOBS_ENABLED
               value: {{ .Values.jobs.enabled | quote }}
@@ -197,31 +182,6 @@ spec:
               value: {{ .Values.jobs.resultTtl | quote }}
             - name: JOBS_MAX_RETRIES
               value: {{ .Values.jobs.maxRetries | quote }}
-            # billing module — master switch plus the non-secret
-            # billing.paypal.* config, matching how the app reads them
-            # (see src/billing/PayPalClient.hpp). The client secret is the
-            # only true credential and comes from the chart Secret.
-            - name: BILLING_ENABLED
-              value: {{ .Values.billing.enabled | quote }}
-            {{- if .Values.billing.enabled }}
-            - name: PAYPAL_ENV
-              value: {{ .Values.billing.paypal.environment | quote }}
-            - name: PAYPAL_CLIENT_ID
-              value: {{ .Values.billing.paypal.clientId | quote }}
-            - name: PAYPAL_WEBHOOK_ID
-              value: {{ .Values.billing.paypal.webhookId | quote }}
-            - name: PAYPAL_RETURN_URL
-              value: {{ .Values.billing.paypal.returnUrl | quote }}
-            - name: PAYPAL_CANCEL_URL
-              value: {{ .Values.billing.paypal.cancelUrl | quote }}
-            {{- if .Values.billing.paypal.clientSecret }}
-            - name: PAYPAL_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "mi-fitness-api.fullname" . }}
-                  key: paypal-client-secret
-            {{- end }}
-            {{- end }}
             # Rate limiting — code defaults RATE_LIMIT_ENABLED to false, so a
             # prod pod without this runs /api/auth/login unthrottled. Inject
             # explicitly. fail_open=true means Redis outages don't block traffic.
@@ -324,78 +284,3 @@ spec:
               value: {{ .Values.auth.csrf.enabled | quote }}
             # Public base URL / name the API renders into transactional email
             # links when it sends inline (jobs disabled).
-            - name: APP_BASE_URL
-              value: {{ .Values.app.baseUrl | quote }}
-            - name: APP_NAME
-              value: {{ .Values.app.name | quote }}
-            # Mail — with jobs disabled the API sends transactional email inline,
-            # so it needs SMTP config. With mail.viaJobs=true it enqueues instead
-            # (the mi-fitness-api-worker chart then performs delivery).
-            - name: MAIL_ENABLED
-              value: {{ .Values.mail.enabled | quote }}
-            {{- if .Values.mail.enabled }}
-            - name: MAIL_VIA_JOBS
-              value: {{ .Values.mail.viaJobs | quote }}
-            - name: MAIL_SMTP_HOST
-              value: {{ .Values.mail.smtpHost | quote }}
-            - name: MAIL_SMTP_PORT
-              value: {{ .Values.mail.smtpPort | quote }}
-            {{- if .Values.mail.smtpUsername }}
-            - name: MAIL_SMTP_USERNAME
-              value: {{ .Values.mail.smtpUsername | quote }}
-            {{- end }}
-            {{- if .Values.mail.smtpPassword }}
-            - name: MAIL_SMTP_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "mi-fitness-api.fullname" . }}
-                  key: mail-smtp-password
-            {{- end }}
-            - name: MAIL_SMTP_USE_TLS
-              value: {{ .Values.mail.smtpUseTls | quote }}
-            - name: MAIL_FROM
-              value: {{ .Values.mail.from | quote }}
-            - name: MAIL_FROM_NAME
-              value: {{ .Values.mail.fromName | quote }}
-            - name: MAIL_SUBJECT_PREFIX
-              value: {{ .Values.mail.subjectPrefix | quote }}
-            {{- end }}
-          {{- with .Values.extraEnvFrom }}
-          envFrom:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          securityContext:
-            readOnlyRootFilesystem: true
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-          volumeMounts:
-            - name: config
-              mountPath: /app/config
-              readOnly: true
-            - name: logs
-              mountPath: /app/logs
-            - name: tmp
-              mountPath: /tmp
-      volumes:
-        - name: config
-          configMap:
-            name: {{ include "mi-fitness-api.fullname" . }}
-        - name: logs
-          emptyDir: {}
-        - name: tmp
-          emptyDir: {}
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}

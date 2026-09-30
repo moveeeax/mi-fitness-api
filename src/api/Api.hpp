@@ -26,12 +26,10 @@
 // Controllers self-register with Drogon when their TU is compiled — pulling
 // them in here is what puts the routes into main.cpp's binary.
 #include "api/AccountController.hpp"
-#include "api/AdminBillingController.hpp"
 #include "api/AdminController.hpp"
 #include "api/ApiKeyController.hpp"
 #include "api/AuditController.hpp"
 #include "api/AuthController.hpp"
-#include "api/BillingController.hpp"
 #include "api/HealthController.hpp"
 #include "api/JobsController.hpp"
 #include "api/Middleware.hpp"

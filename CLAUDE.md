@@ -13,8 +13,8 @@
 Следствие принято сознательно: ошибки, которые видит только GCC или
 санитайзеры, находятся прогоном CI, и цикл задачи из-за этого длиннее.
 
-C++20 REST service template: Drogon + PostgreSQL + Redis, vcpkg/CMake,
-React SPA in `frontend/`, Helm charts in `helm/`. `docs/INDEX.md` is the
+C++20 REST service: Drogon + PostgreSQL + Redis, vcpkg/CMake,
+Helm charts in `helm/`. `docs/INDEX.md` is the
 map of all documentation; `docs/CONVENTIONS.md` is the pattern reference.
 
 ## Prime directive: scaffold, don't hand-roll
@@ -40,7 +40,6 @@ map of all documentation; `docs/CONVENTIONS.md` is the pattern reference.
 - Feature module (config flag + `Core::<name>_enabled()` + compose/helm/docs
   wiring): `./scripts/new-module.sh <name>`
 - Migration: `make new-migration SLUG=<slug>`
-- React page: `./scripts/new-react-page.sh`
 - Changelog entry: drop a fragment `changelog.d/<topic>.<type>.md` (type ∈
   added|changed|fixed|removed|security; bullet text WITHOUT the leading
   `- `, format: `changelog.d/README.md`) — parallel-safe, two PRs never
@@ -83,7 +82,7 @@ gates by construction. Hand-rolled versions usually don't.
    the `scripts/bench-incremental.sh` threshold get their non-template
    bodies de-inlined into a paired `.cpp` compiled ONCE into the `app_core`
    STATIC library (CMake picks up any `src/**/*.cpp` via GLOB — no CMake
-   edit needed; billing is de-inlined, more modules follow by measured
+   edit needed; heavy modules de-inline by measured
    weight). Drogon route macros (`ADD_METHOD_TO`) always stay in the
    controller `.hpp` — the route gates grep only headers.
 4. **One error shape:** `{error, status, message, ...}` everywhere — use
@@ -132,14 +131,14 @@ gates by construction. Hand-rolled versions usually don't.
    is major 17, the CI pin; fix: `pip install clang-format==17.0.6`)
 2. `./scripts/check-openapi-drift.sh && ./scripts/check-routes-registered.sh
    && ./scripts/check-test-buckets.sh && ./scripts/check-version-sync.sh
-   && ./scripts/check-frontend-nginx-sync.sh && ./scripts/check-module-deps.sh
+   && ./scripts/check-module-deps.sh
    && ./scripts/check-config-sync.sh && ./scripts/assemble-changelog.sh --check`
    — seconds, no build.
    Touched a `check-*` script (or assemble-changelog.sh)? Also run
    `./scripts/check-selftest.sh` — in this FORK the template-version-drift
    case self-skips (TEMPLATE_FORK=1: the stamp is owned by sync-upstream.sh
    and legitimately lags after the fork's own first release) —
-   plants 20 breakages and requires every gate to catch and name them
+   plants 17 breakages and requires every gate to catch and name them
    (needs helm+yq; in CI `gate-selftest` self-scopes to diffs touching
    `scripts/`, `helm/` or `.github/workflows/`, with a nightly
    unconditional backstop in `.github/workflows/gates-nightly.yml`)
@@ -158,7 +157,7 @@ Postgres/Redis, CI_REQUIRE_INFRA=1), gitleaks, helm-render,
 the OpenAPI-drift gate and the gate selftest; C++ compiles in CI go through sccache backed by
 the Actions cache. Trivy scans images in the release pipeline
 (`.github/workflows/release.yml`), not in per-PR CI. The heavy jobs
-(build-and-test, clang-tidy, sanitizers, tsan, runtime-smoke, frontend,
+(build-and-test, clang-tidy, sanitizers, tsan, runtime-smoke,
 gate-selftest) SELF-scope: they always start (required-check semantics stay
 honest — never a `paths:` filter), diff the change set themselves, and exit
 green in seconds when their input paths are untouched (docs/CI-PROFILES.md
@@ -202,8 +201,7 @@ CI; the fork enables it per `docs/RENDER-GATE.md`.
   second-or-later write counted from zero; root cause never found — forensics
   in the site fork's commit b676430). Pattern instead: `INSERT ... ON CONFLICT
   DO NOTHING` → `SELECT ... FOR UPDATE` → compute the new value in C++ →
-  plain `UPDATE` — canonical in-repo example: the wallet ledger in
-  `src/billing/Wallet.hpp`.
+  plain `UPDATE`.
 - Don't use inja's default `{#`/`#}` comment markers in templates that carry
   TeX-like content — a `#1`-style macro parameter (`{#1}`) opens an inja
   comment that never closes and the whole render dies with a parser error at

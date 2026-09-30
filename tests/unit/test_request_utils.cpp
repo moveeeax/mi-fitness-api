@@ -31,26 +31,6 @@ TEST(RequestUtilsTest, UuidSegmentRedacted) {
               "/api/v1/jobs/dlq/:id/requeue");
 }
 
-TEST(RequestUtilsTest, AccountTokensRedacted) {
-    EXPECT_EQ(normalize_path_for_metrics("/api/v1/account/confirm/eyJhbGciOi.JTV.sig"),
-              "/api/v1/account/confirm/:token");
-    EXPECT_EQ(normalize_path_for_metrics("/api/v1/account/reset-password/some.long.token"),
-              "/api/v1/account/reset-password/:token");
-    EXPECT_EQ(normalize_path_for_metrics("/api/v1/account/change-email/some.long.token"),
-              "/api/v1/account/change-email/:token");
-    // Regression: the invite-redeem token (a 7-day account-takeover secret) must
-    // be redacted too — it was leaking into access logs + the metric path label.
-    EXPECT_EQ(normalize_path_for_metrics("/api/v1/account/join-from-invite/eyJhbGciOi.JTV.sig"),
-              "/api/v1/account/join-from-invite/:token");
-}
-
-TEST(RequestUtilsTest, RequestVariantsNotMistakenForTokenRoutes) {
-    // The *-request / *-resend single-segment routes carry no token.
-    EXPECT_EQ(normalize_path_for_metrics("/api/v1/account/reset-password-request"),
-              "/api/v1/account/reset-password-request");
-    EXPECT_EQ(normalize_path_for_metrics("/api/v1/account/confirm-resend"), "/api/v1/account/confirm-resend");
-}
-
 TEST(RequestUtilsTest, IsValidUuid) {
     EXPECT_TRUE(Api::is_valid_uuid("123e4567-e89b-12d3-a456-426614174000"));
     EXPECT_FALSE(Api::is_valid_uuid("not-a-uuid"));

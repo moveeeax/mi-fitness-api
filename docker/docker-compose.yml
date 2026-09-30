@@ -1,5 +1,4 @@
 # Shared environment fragments. app and worker must agree on these — the
-# worker sends account emails (tokens + SMTP + links), so a key added to one
 # list but not the other produces silent anonymous-SMTP / wrong-link bugs.
 # YAML merge keys need map-form environment blocks below.
 x-data-env: &data-env
@@ -14,9 +13,8 @@ x-data-env: &data-env
   REDIS_DB: ${REDIS_DB:-0}
 
 # Auth — JWT in HttpOnly cookies. Defaults keep auth disabled so `make up`
-# stays open. The `with-frontend` profile / .env.everything flips
+# stays open. The `.env.everything` file flips
 # AUTH_MODE=jwt + secrets so the SPA logs in. The worker needs the secret
-# too: account_email jobs issue confirmation/reset tokens.
 x-auth-env: &auth-env
   AUTH_MODE: ${AUTH_MODE:-none}
   JWT_SECRET: ${JWT_SECRET:-}
@@ -27,23 +25,6 @@ x-auth-env: &auth-env
   AUTH_COOKIE_SAMESITE: ${AUTH_COOKIE_SAMESITE:-Lax}
   AUTH_COOKIE_ACCESS: ${AUTH_COOKIE_ACCESS:-__Host-access}
   AUTH_COOKIE_REFRESH: ${AUTH_COOKIE_REFRESH:-__Host-refresh}
-
-# Mail — points at the Mailpit dev sidecar by default. Full credential set:
-# with a production STARTTLS server, a missing username/password here means
-# both containers silently connect anonymously.
-x-mail-env: &mail-env
-  MAIL_ENABLED: ${MAIL_ENABLED:-false}
-  MAIL_VIA_JOBS: ${MAIL_VIA_JOBS:-true}
-  MAIL_SMTP_HOST: ${MAIL_SMTP_HOST:-mailpit}
-  MAIL_SMTP_PORT: ${MAIL_SMTP_PORT:-1025}
-  MAIL_SMTP_USERNAME: ${MAIL_SMTP_USERNAME:-}
-  MAIL_SMTP_PASSWORD: ${MAIL_SMTP_PASSWORD:-}
-  MAIL_SMTP_USE_TLS: ${MAIL_SMTP_USE_TLS:-false}
-  MAIL_FROM: ${MAIL_FROM:-noreply@example.com}
-  MAIL_FROM_NAME: ${MAIL_FROM_NAME:-App}
-  MAIL_SUBJECT_PREFIX: "${MAIL_SUBJECT_PREFIX:-[App] }"
-  APP_NAME: ${APP_NAME:-App}
-  APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
 
 services:
   # Application service
@@ -63,20 +44,10 @@ services:
       - "8080:8080"  # API
       - "9090:9090"  # Metrics
     environment:
-      <<: [*data-env, *auth-env, *mail-env]
-      MESSAGING_ENABLED: ${MESSAGING_ENABLED:-false}
-      KAFKA_PRODUCER_ENABLED: ${KAFKA_PRODUCER_ENABLED:-false}
-      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+      <<: [*data-env, *auth-env]
       JOBS_ENABLED: ${JOBS_ENABLED:-false}
       JOBS_RESULT_TTL: ${JOBS_RESULT_TTL:-86400}
       JOBS_MAX_RETRIES: ${JOBS_MAX_RETRIES:-3}
-      BILLING_ENABLED: ${BILLING_ENABLED:-false}
-      PAYPAL_ENV: ${PAYPAL_ENV:-sandbox}
-      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
-      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
-      PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
-      PAYPAL_RETURN_URL: ${PAYPAL_RETURN_URL:-}
-      PAYPAL_CANCEL_URL: ${PAYPAL_CANCEL_URL:-}
       OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
       SERVICE_NAME: ${SERVICE_NAME:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -191,16 +162,16 @@ services:
       - "9091:9091"
       - "9190:9090"  # Metrics (remapped to avoid conflict with app:9090)
     environment:
-      # Same data/auth/mail env as app — see the x-*-env anchors up top.
-      <<: [*data-env, *auth-env, *mail-env]
+      # Same data/auth env as app — see the x-*-env anchors up top.
+      <<: [*data-env, *auth-env]
       JOBS_ENABLED: "true"
       WORKER_ID: ${WORKER_ID:-worker-1}
       # Production-shaped default: only the real job types the app enqueues.
       # The demo handlers `echo`/`slow`/`fail` live in src/worker_main.cpp for
       # manual testing — opt them in explicitly when you want them, e.g.:
-      #   WORKER_TYPES=default,account_email,echo,slow,fail
+      #   WORKER_TYPES=default,echo,slow,fail
       # (The API job tests drain Redis directly and do NOT rely on this list.)
-      WORKER_TYPES: ${WORKER_TYPES:-default,account_email}
+      WORKER_TYPES: ${WORKER_TYPES:-default}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
       WORKER_HEALTH_PORT: ${WORKER_HEALTH_PORT:-9091}
       WORKER_BRPOP_TIMEOUT: ${WORKER_BRPOP_TIMEOUT:-5}
@@ -384,69 +355,6 @@ services:
       timeout: 3s
       retries: 5
 
-  # Kafka + Zookeeper (optional)
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: mi_fitness_api_zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-    volumes:
-      - zookeeper_data:/var/lib/zookeeper/data
-      - zookeeper_log:/var/lib/zookeeper/log
-    networks:
-      - app-network
-    restart: unless-stopped
-    healthcheck:
-      # cub (Confluent Utility Belt) ships in cp-* images; nc does not.
-      test: ["CMD", "cub", "zk-ready", "localhost:2181", "5"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-    # Cap memory so a dev laptop doesn't OOM when the kafka profile is up.
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-    profiles:
-      - with-kafka
-
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: mi_fitness_api_kafka
-    depends_on:
-      zookeeper:
-        # List-form depends_on only waits for container START; Kafka racing
-        # an unready Zookeeper is a classic CI flake.
-        condition: service_healthy
-    ports:
-      - "9092:9092"
-      - "9093:9093"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      # Bound the JVM so the kafka profile fits on a dev laptop.
-      KAFKA_HEAP_OPTS: "-Xmx512m -Xms256m"
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-    volumes:
-      - kafka_data:/var/lib/kafka/data
-    networks:
-      - app-network
-    restart: unless-stopped
-    profiles:
-      - with-kafka
-    healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
   # Prometheus for metrics (optional)
   prometheus:
     image: prom/prometheus:v3.12.0
@@ -547,63 +455,6 @@ services:
     profiles:
       - with-monitoring
 
-  # Starts only with the kafka profile: multi-profile (with-kafka +
-  # with-monitoring) made it start under with-monitoring alone and
-  # crashloop against a Kafka that was never launched.
-  kafka-exporter:
-    image: danielqsj/kafka-exporter:v1.9.0
-    container_name: mi_fitness_api_kafka_exporter
-    command:
-      - '--kafka.server=kafka:9092'
-    networks:
-      - app-network
-    restart: unless-stopped
-    profiles:
-      - with-kafka
-
-  # React SPA — built once at image build, served by nginx with /api/*
-  # proxied to the `app` container. Visit http://localhost:3001; the
-  # backend's :8080 stays available for direct API hits.
-  # Opt-in via profile `with-frontend` so plain `make up` stays
-  # backend-only (faster cold start, no Node toolchain pulled).
-  frontend:
-    image: ${FRONTEND_IMAGE:-ghcr.io/your-registry/your-project/mi-fitness-api-frontend:latest}
-    build:
-      context: ..
-      dockerfile: frontend/Dockerfile
-    container_name: mi_fitness_api_frontend
-    ports:
-      - "3001:8080"
-    depends_on:
-      app:
-        condition: service_healthy
-    networks:
-      - app-network
-    restart: unless-stopped
-    profiles:
-      - with-frontend
-
-  # Mailpit — local SMTP catcher for dev. Inbox UI on :8025, SMTP on :1025.
-  # No TLS, no auth — point MAIL_SMTP_HOST=mailpit / MAIL_SMTP_PORT=1025
-  # / MAIL_ENABLED=true at it. Email never leaves the docker network.
-  # DELIBERATELY profile-less (starts with plain `make up`): the account
-  # flows (confirm/reset/invite) are part of the core dev loop. If host
-  # port 1025/8025 clashes with a local mail agent, add a profile here.
-  mailpit:
-    image: axllent/mailpit:v1.30
-    container_name: mi_fitness_api_mailpit
-    ports:
-      - "1025:1025"   # SMTP
-      - "8025:8025"   # Web UI
-    networks:
-      - app-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8025/api/v1/info"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-
   # Jaeger for distributed tracing (optional)
   jaeger:
     image: jaegertracing/all-in-one:1.76.0
@@ -627,8 +478,5 @@ volumes:
   postgres_data:
   postgres_replica_data:
   redis_data:
-  zookeeper_data:
-  zookeeper_log:
-  kafka_data:
   prometheus_data:
   grafana_data:

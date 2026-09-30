@@ -1,10 +1,8 @@
 {
-  "_comment": "Production profile: every security toggle ON, every dev convenience OFF. Validate with `make prod-check` before deploying. Secrets come ONLY from the environment — this file must never contain literal credentials.",
   "app": {
-    "env": "production",
-    "name": "${APP_NAME}",
-    "base_url": "${APP_BASE_URL}"
+    "env": "${APP_ENV:-production}"
   },
+  "_comment": "Production profile: every security toggle ON, every dev convenience OFF. Validate with `make prod-check` before deploying. Secrets come ONLY from the environment — this file must never contain literal credentials.",
   "server": {
     "host": "0.0.0.0",
     "port": 8080,
@@ -48,22 +46,6 @@
       "master_name": "${REDIS_MASTER_NAME:-mymaster}",
       "nodes": []
     }
-  },
-  "mail": {
-    "enabled": "${MAIL_ENABLED:-true}",
-    "via_jobs": "${MAIL_VIA_JOBS:-true}",
-    "smtp_host": "${MAIL_SMTP_HOST}",
-    "smtp_port": "${MAIL_SMTP_PORT:-587}",
-    "smtp_username": "${MAIL_SMTP_USERNAME}",
-    "smtp_password": "${MAIL_SMTP_PASSWORD}",
-    "smtp_use_tls": true,
-    "from": "${MAIL_FROM}",
-    "from_name": "${MAIL_FROM_NAME}",
-    "subject_prefix": "${MAIL_SUBJECT_PREFIX:-}",
-    "timeout_sec": 30
-  },
-  "messaging": {
-    "enabled": false
   },
   "api": {
     "public_paths": "/healthz,/ready,/health,/api/v1/auth/login,/api/v1/auth/register,/api/v1/auth/refresh,/api/v1/account/confirm/*,/api/v1/account/reset-password-request,/api/v1/account/reset-password/*,/api/v1/account/change-email/*,/api/v1/account/join-from-invite/*"

@@ -1,7 +1,7 @@
 /**
  * @file test_module_guards.cpp
  * @brief Unit tests for the lifecycle/guard contracts of modules that have
- *        no other direct coverage: Messaging (incl. the MessagingSystem /
+ *        no other direct coverage:
  *        producer / consumer pre-init guards), Tasks, Migrations' singleton
  *        doorway, the JobQueue config accessors, and the SqlErrors
  *        translate_sql wrapper. Pure — no Kafka broker, no Postgres/Redis.
@@ -14,69 +14,10 @@
 
 #include "database/Migrations.hpp"
 #include "jobs/Jobs.hpp"
-#include "messaging/Messaging.hpp"
 #include "repositories/SqlErrors.hpp"
 #include "tasks/Tasks.hpp"
 
 namespace {
-
-// ---- Messaging lifecycle (no broker needed: ctor doesn't connect) ----------
-
-TEST(MessagingGuardTest, GetBeforeInitThrows) {
-    if (Messaging::is_initialized())
-        Messaging::shutdown();
-    EXPECT_FALSE(Messaging::is_initialized());
-    EXPECT_THROW(Messaging::get(), std::runtime_error);
-}
-
-TEST(MessagingGuardTest, InitThrowsOnDoubleInitAndShutdownResets) {
-    if (Messaging::is_initialized())
-        Messaging::shutdown();
-    Messaging::initialize();
-    EXPECT_TRUE(Messaging::is_initialized());
-    EXPECT_NO_THROW(Messaging::get());
-    // Messaging follows the throw-on-reinit convention (like Cache/Jobs/
-    // Database), NOT the warned-no-op one (Auth/RateLimit/Idempotency).
-    EXPECT_THROW(Messaging::initialize(), std::runtime_error);
-    EXPECT_TRUE(Messaging::is_initialized());
-    Messaging::shutdown();
-    EXPECT_FALSE(Messaging::is_initialized());
-    EXPECT_THROW(Messaging::get(), std::runtime_error);
-}
-
-// Smoke over the template-API surface below Messaging::get() — the accessor
-// guards that forks hit first when wiring a producer/consumer. None of this
-// touches librdkafka objects: everything must throw/report BEFORE any broker
-// I/O could happen.
-TEST(MessagingGuardTest, SystemAccessorsGuardBeforeComponentInit) {
-    if (Messaging::is_initialized())
-        Messaging::shutdown();
-    Messaging::initialize();
-    auto& sys = Messaging::get();
-    EXPECT_FALSE(sys.has_producer());
-    EXPECT_FALSE(sys.has_consumer());
-    EXPECT_THROW(sys.get_producer(), std::runtime_error);
-    EXPECT_THROW(sys.get_consumer(), std::runtime_error);
-    Messaging::shutdown();
-}
-
-TEST(MessagingGuardTest, ProducerAndConsumerOpsThrowBeforeInit) {
-    Messaging::KafkaProducer producer;
-    EXPECT_FALSE(producer.is_initialized());
-    EXPECT_THROW(producer.produce("topic", "key", "payload"), std::runtime_error);
-    EXPECT_THROW(producer.flush(0), std::runtime_error);
-    EXPECT_THROW(producer.outq_len(), std::runtime_error);
-
-    Messaging::KafkaConsumer consumer;
-    EXPECT_FALSE(consumer.is_initialized());
-    EXPECT_FALSE(consumer.is_consuming());
-    EXPECT_THROW(consumer.consume(0), std::runtime_error);
-    EXPECT_THROW(consumer.start_consuming([](const std::string&, const std::string&) {}, 0), std::runtime_error);
-    // stop_consuming/shutdown are deliberately safe no-ops pre-init.
-    EXPECT_NO_THROW(consumer.stop_consuming());
-    EXPECT_NO_THROW(consumer.shutdown());
-    EXPECT_NO_THROW(producer.shutdown());
-}
 
 // ---- Migrations singleton doorway ------------------------------------------
 

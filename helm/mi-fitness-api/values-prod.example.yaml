@@ -110,14 +110,6 @@ rateLimit:
 idempotency:
   enabled: true
 
-externalKafka:
-  enabled: false   # flip on only if you actually use Kafka
-  brokers: "kafka.kafka.svc.cluster.local:9092"
-  producerEnabled: false
-  producerId: mi_fitness_api_producer
-  consumerEnabled: false
-  consumerGroupId: cpp_consumer_group
-
 tracing:
   enabled: true
   otlpEndpoint: "http://jaeger.monitoring.svc.cluster.local:4318/v1/traces"   # TODO

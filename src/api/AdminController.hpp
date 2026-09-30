@@ -8,7 +8,7 @@
  * Routes (all under /api/admin):
  *   GET    /api/admin/users                      list users (paginated)
  *   POST   /api/admin/users                      create a fully-formed user
- *   POST   /api/admin/invite                     invite via email — user sets password later
+ *   user sets password later
  *   GET    /api/admin/users/{id}                 user detail
  *   PATCH  /api/admin/users/{id}                 partial update (email / role / first/last name)
  *   DELETE /api/admin/users/{id}                 delete user
@@ -43,7 +43,6 @@ public:
     METHOD_LIST_BEGIN
     ADD_METHOD_TO(AdminController::listUsers, "/api/v1/admin/users", Get);
     ADD_METHOD_TO(AdminController::createUser, "/api/v1/admin/users", Post);
-    ADD_METHOD_TO(AdminController::inviteUser, "/api/v1/admin/invite", Post);
     ADD_METHOD_TO(AdminController::getUser, "/api/v1/admin/users/{1}", Get);
     ADD_METHOD_TO(AdminController::updateUser, "/api/v1/admin/users/{1}", Patch);
     ADD_METHOD_TO(AdminController::deleteUser, "/api/v1/admin/users/{1}", Delete);
@@ -56,8 +55,6 @@ public:
     void listUsers(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback);
 
     void createUser(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback);
-
-    void inviteUser(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback);
 
     void getUser(const HttpRequestPtr& req,
                  std::function<void(const HttpResponsePtr&)>&& callback,
@@ -89,8 +86,7 @@ private:
 
     /**
      * @brief Resolve the optional "role_id" in @p body (defaults to the
-     *        default role when absent) — the shared preamble of createUser and
-     *        inviteUser. On an unknown role responds 400 invalid_role with
+     *        default role when absent) — the preamble of createUser. On an unknown role responds 400 invalid_role with
      *        @p invalid_message (the two callers word it differently; "" omits
      *        the message key) and returns nullopt.
      */

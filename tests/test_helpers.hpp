@@ -20,7 +20,6 @@
 #include "database/Database.hpp"
 #include "database/Migrations.hpp"
 #include "jobs/Jobs.hpp"
-#include "messaging/Messaging.hpp"
 #include "observability/Observability.hpp"
 #include "security/Auth.hpp"
 #include "tasks/Tasks.hpp"
@@ -146,9 +145,6 @@ inline std::string minimal_config() {
            redis_url() + R"(",
         "pool_size": 2,
         "use_sentinel": false
-    },
-    "messaging": {
-        "enabled": false
     }
 })";
 }
@@ -226,9 +222,6 @@ inline void reset_all_globals() {
     } catch (...) {}
     try {
         Tasks::shutdown();
-    } catch (...) {}
-    try {
-        Messaging::shutdown();
     } catch (...) {}
     try {
         Cache::shutdown();
@@ -336,12 +329,12 @@ inline void truncate_users() {
  *        - `DELETE FROM roles WHERE name NOT IN (...)` keeps migration 001's
  *          two seed roles; the ON CONFLICT re-insert below makes the wipe
  *          self-healing even if a test dropped them outright.
- *        audit_log / used_tokens carry no FKs and ride in one TRUNCATE.
+ *        audit_log carries no FKs.
  */
 inline void wipe_app_data() {
     Database::get().execute_write([](auto& txn) {
         txn.exec("TRUNCATE TABLE users CASCADE");
-        txn.exec("TRUNCATE TABLE audit_log, used_tokens");
+        txn.exec("TRUNCATE TABLE audit_log");
         txn.exec("DELETE FROM roles WHERE name NOT IN ('User', 'Administrator')");
         // Mirror migration 001's seed exactly, so a suite can rely on the two
         // roles existing no matter what ran before it.

@@ -3,8 +3,7 @@
  * @brief One-shot global libcurl init shared by every curl user.
  * @details CURL needs `curl_global_init` once per process before any
  *          `curl_easy_*` calls. Sodium-style idempotent guard. Lives in
- *          utils/ so Mailer and Webhooks can share it without Webhooks
- *          having to include the whole Mailer (that edge made webhooks a
+ *          utils/ so transports can share it (a Webhooks→Mailer edge once made webhooks a
  *          transitive dependency of the email module and vice versa).
  */
 

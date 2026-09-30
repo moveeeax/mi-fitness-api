@@ -15,8 +15,6 @@ Set `CONFIG_FILE` to point at a different JSON file (e.g.
 
 | Env | JSON key | Type | Default | Notes |
 |---|---|---|---|---|
-| `APP_NAME` | `app.name` | string | `App` | Display name used in email subjects / templates |
-| `APP_BASE_URL` | `app.base_url` | string | `http://localhost:8080` | Public origin used to build links in account emails (confirm / reset / change-email) |
 | `APP_ENV` | `app.env` | string | `development` | Environment label used by boot-time config validation. `production` / `prod` makes `AUTH_MODE=none` a fatal boot error and warns on insecure combinations (cookie `secure=false`, rate limit off / fail-open, docs on, cookie auth without CSRF) |
 
 ## Server
@@ -173,12 +171,6 @@ For URL components: `REDIS_HOST`, `REDIS_PORT`.
 
 | Env | JSON key | Type | Default | Notes |
 |---|---|---|---|---|
-| `MESSAGING_ENABLED` | `messaging.enabled` | bool | `false` | Parent switch |
-| `KAFKA_BROKERS` | `messaging.kafka.brokers` | string | `localhost:9092` | |
-| `KAFKA_PRODUCER_ENABLED` | `messaging.kafka.producer.enabled` | bool | `false` | |
-| `KAFKA_PRODUCER_ID` | `messaging.kafka.producer.client_id` | string | `mi_fitness_api_producer` | |
-| `KAFKA_CONSUMER_ENABLED` | `messaging.kafka.consumer.enabled` | bool | `false` | |
-| `KAFKA_GROUP_ID` | `messaging.kafka.consumer.group_id` | string | `cpp_consumer_group` | |
 
 ## Jobs
 
@@ -192,27 +184,15 @@ For URL components: `REDIS_HOST`, `REDIS_PORT`.
 | `JOBS_VISIBILITY_TIMEOUT_SEC` | `jobs.visibility_timeout_sec` | int | `0` | Processing lease: a job whose worker dies is re-queued after this many seconds. `0` disables leases (legacy behaviour) |
 | `JOBS_DLQ_METRIC_REFRESH_SEC` | `jobs.dlq_metric_refresh_sec` | int | `10` | Exports `jobs_dlq_depth{type="..."}` plus an aggregate `type="_total"` |
 | `JOBS_QUEUE_METRIC_REFRESH_SEC` | `jobs.queue_metric_refresh_sec` | int | `10` | Same bookkeeping for the waiting queue: `jobs_queue_depth{type="..."}` plus `type="_total"` |
-| `OUTBOX_DRAIN_INTERVAL_SEC` | `outbox.drain_interval_sec` | int | `0` | Transactional outbox (`src/jobs/Outbox.hpp`): how often the API pod relays `outbox` table rows to the job queue. `0` (default) disables draining — the pattern is opt-in; rows written via `Outbox::enqueue` sit in Postgres until a deploy enables this. Needs `jobs.enabled=true`. |
 | `DB_REPLICA_LAG_METRIC_REFRESH_SEC` | `database.replica_lag_metric_refresh_sec` | int | `15` | Refresh interval for the `db_replica_lag_seconds` gauge. Only registered when read replicas are configured (primary has no replay timestamp). |
 
 ## Billing module
 
 | Env | JSON key | Type | Default | Notes |
 |---|---|---|---|---|
-| `BILLING_ENABLED` | `billing.enabled` | bool | `false` | Master switch for the billing module (`Core::billing_enabled()`) — same on/off pattern as `JOBS_ENABLED`; routes stay registered, handlers 404 while off. `Billing::initialize()` (called from `Core::initialize()`) throws at boot if this is `true` and `client_id`/`client_secret`/`webhook_id` are empty. |
 | — | `billing.provider` | string | `paypal` | Only provider supported today |
-| `BILLING_CURRENCY` | `billing.currency` | string | `USD` | ISO 4217; must be a 2-decimal currency (the cents parser rejects others) |
-| `BILLING_CREDITS_PER_UNIT` | `billing.credits_per_unit` | int | `100` | Credits minted per currency unit (100 cents) captured. Config default only — the live value is the `billing_settings` row (migration 008), editable at runtime by the admin API |
-| `BILLING_MIN_AMOUNT_CENTS` | `billing.min_amount_cents` | int | `100` | Custom top-up lower bound; live value in `billing_settings` |
-| `BILLING_MAX_AMOUNT_CENTS` | `billing.max_amount_cents` | int | `100000` | Custom top-up upper bound; live value in `billing_settings` |
-| `PAYPAL_ENV` | `billing.paypal.environment` | enum | `sandbox` | `sandbox` \| `live`; unknown values fail safe to sandbox |
-| `PAYPAL_CLIENT_ID` | `billing.paypal.client_id` | string | — | Public; not a credential |
-| `PAYPAL_CLIENT_SECRET` | `billing.paypal.client_secret` | string | — | Never logged; the only true secret in this block — sourced from the chart Secret, never a plaintext value in tracked files |
-| `PAYPAL_WEBHOOK_ID` | `billing.paypal.webhook_id` | string | — | Identifies which PayPal webhook subscription to verify signatures against — an identifier, not a credential, but required when billing is enabled (an unset value 5xxs every webhook delivery forever) |
-| `PAYPAL_RETURN_URL` | `billing.paypal.return_url` | string | — | Where PayPal redirects on approved checkout |
-| `PAYPAL_CANCEL_URL` | `billing.paypal.cancel_url` | string | — | Where PayPal redirects on cancelled checkout |
 
-The webhook path (`/api/v1/billing/paypal/webhook`) is auth-public in the
+The webhook path (``) is auth-public in the
 shipped defaults (PayPal's own servers call it directly, not an
 authenticated user). A deployment that overrides `api.public_paths` must
 re-expose it through the ADDITIVE `api.public_paths_extra` /
@@ -230,18 +210,6 @@ outage can never affect the money path.
 
 | Env | JSON key | Type | Default | Notes |
 |---|---|---|---|---|
-| `MAIL_ENABLED` | `mail.enabled` | bool | `false` | Off → links are logged at INFO instead of sent |
-| `MAIL_VIA_JOBS` | `mail.via_jobs` | bool | `true` | Route account emails through the `account_email` job queue when Jobs is enabled (worker must subscribe to that type); falls back to inline send when Jobs is off or enqueue fails |
-| `MAIL_SMTP_HOST` | `mail.smtp_host` | string | `mailpit` | `config.json` default targets the Mailpit dev sidecar |
-| `MAIL_SMTP_PORT` | `mail.smtp_port` | int | `1025` | |
-| `MAIL_SMTP_USERNAME` | `mail.smtp_username` | string | — | Empty → anonymous |
-| `MAIL_SMTP_PASSWORD` | `mail.smtp_password` | string | — | |
-| `MAIL_SMTP_USE_TLS` | `mail.smtp_use_tls` | bool | `false` | STARTTLS; implicit TLS on port 465 |
-| `MAIL_FROM` | `mail.from` | string | `noreply@example.com` | |
-| `MAIL_FROM_NAME` | `mail.from_name` | string | `App` | |
-| `MAIL_SUBJECT_PREFIX` | `mail.subject_prefix` | string | `[App] ` | Note the trailing space. If the prefix doesn't end in a space, one is inserted between prefix and subject automatically |
-| `MAIL_TEMPLATES_DIR` | `mail.templates_dir` | string | `templates/email` | Relative to the working directory |
-| `MAIL_TIMEOUT_SEC` | `mail.timeout_sec` | int | `30` | |
 
 ## Worker (second binary, `mi_fitness_api_worker`)
 

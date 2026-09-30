@@ -16,7 +16,6 @@
 #include "api/HandlerSupport.hpp"
 #include "api/Validation.hpp"
 #include "cache/Cache.hpp"
-#include "email/AccountEmails.hpp"
 #include "repositories/RoleRepository.hpp"
 #include "repositories/UserRepository.hpp"
 #include "security/Audit.hpp"
@@ -29,53 +28,6 @@
 #include "utils/Time.hpp"
 
 namespace Api {
-
-void AuthController::registerUser(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
-    json body;
-    if (!Validation::parse_body(req, body, callback))
-        return;
-    Validation::Errors errs;
-    Validation::require(errs, body, "email");
-    Validation::require(errs, body, "password");
-    Validation::email(errs, body, "email");
-    Validation::string_length(errs, body, "password", Validation::kPasswordMinLen, Validation::kPasswordMaxLen);
-    if (errs.any()) {
-        callback(Validation::response_400(errs));
-        return;
-    }
-
-    const std::string email = body["email"].get<std::string>();
-    const std::string password = body["password"].get<std::string>();
-    const auto first_name = Validation::opt_string(body, "first_name");
-    const auto last_name = Validation::opt_string(body, "last_name");
-
-    Repositories::RoleRepository roles;
-    auto default_role = roles.find_default();
-    if (!default_role) {
-        spdlog::error("No default role in DB — run migrations / setup-dev");
-        callback(ErrorResponse::service_unavailable("misconfigured", "default role missing"));
-        return;
-    }
-
-    // with_repo_errors centralizes the DuplicateEmail->409 / *->500 mapping
-    // (was hand-rolled here, the exact drift the helper exists to prevent).
-    with_repo_errors(callback, "register", [&] {
-        const std::string hash = Security::Password::hash(password);
-        Repositories::UserRepository users;
-        auto created = users.create(email, hash, first_name, last_name, default_role->id, /*confirmed=*/false);
-
-        // Attach the role we already loaded so to_json embeds it — no
-        // need to re-query the row we just inserted.
-        created.role = *default_role;
-        // Fire the confirmation email. AccountEmails handles token
-        // issuing + render + send; failures log but don't break
-        // registration (the user still has an account, they can hit
-        // /confirm-resend to retry).
-        Email::AccountEmails::send_confirm(created);
-        callback(Response::created(
-            {{"user", json(created)}, {"message", "Account created. Check your email for the confirmation link."}}));
-    });
-}
 
 void AuthController::login(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
     json body;
