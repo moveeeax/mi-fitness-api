@@ -117,24 +117,47 @@ public:
                     offset);
     }
 
-    Page summary(const std::string& from, const std::string& to, long limit, long offset) {
-        // Главная сессия сна дня это самая длинная не-дрёма с пробуждением в
-        // эти сутки UTC; resting-пульс один на сутки по построению облака,
-        // берётся последний.
+    Page summary(
+        const std::string& from, const std::string& to, long limit, long offset, long long zone_offset_seconds) {
+        // date у активности локальная (пояс устройства), поэтому окна сна и
+        // resting-пульса строятся от локальной полуночи в поясе региона:
+        // UTC-окно уводило утренние записи в предыдущую строку (обзор фазы
+        // 3, Important 5). Остаточный сдвиг пояса устройства против пояса
+        // региона даёт край в час — записан Ruling-ом.
+        const std::string day_start =
+            "(a.date::timestamp AT TIME ZONE 'UTC' - make_interval(secs => $5::double precision))";
         const std::string select =
             "SELECT a.date::text, a.steps, a.distance_m, a.active_kcal, "
             "s.duration_minutes AS sleep_duration_minutes, s.sleep_score, hr.bpm AS resting_bpm "
             "FROM daily_activity a "
             "LEFT JOIN LATERAL (SELECT duration_minutes, sleep_score FROM sleep_sessions "
-            " WHERE NOT is_nap AND end_at >= a.date::timestamptz AND end_at < a.date::timestamptz + interval '1 day' "
-            " ORDER BY duration_minutes DESC LIMIT 1) s ON true "
+            " WHERE NOT is_nap AND end_at >= " +
+            day_start + " AND end_at < " + day_start +
+            " + interval '1 day' ORDER BY duration_minutes DESC LIMIT 1) s ON true "
             "LEFT JOIN LATERAL (SELECT bpm FROM heart_rate_samples "
-            " WHERE sample_type = 'resting' AND timestamp >= a.date::timestamptz "
-            " AND timestamp < a.date::timestamptz + interval '1 day' "
+            " WHERE sample_type = 'resting' AND timestamp >= " +
+            day_start + " AND timestamp < " + day_start +
+            " + interval '1 day' "
             " ORDER BY timestamp DESC LIMIT 1) hr ON true "
             "WHERE a.date BETWEEN $1 AND $2 ORDER BY a.date";
-        return page(
-            select, "SELECT COUNT(*) FROM daily_activity WHERE date BETWEEN $1 AND $2", from, to, limit, offset);
+        return page(select,
+                    "SELECT COUNT(*) FROM daily_activity WHERE date BETWEEN $1 AND $2 AND $3::bigint > -86401",
+                    from,
+                    to,
+                    limit,
+                    offset,
+                    zone_offset_seconds);
+    }
+
+    Page abnormal_heart_beat(const std::string& from, const std::string& to, long limit, long offset) {
+        return page("SELECT event_id, " + iso("start_at") + " AS start_at, " + iso("end_at") +
+                        " AS end_at, duration_seconds FROM abnormal_heart_beat_events WHERE " + day_range("start_at") +
+                        " ORDER BY start_at",
+                    "SELECT COUNT(*) FROM abnormal_heart_beat_events WHERE " + day_range("start_at"),
+                    from,
+                    to,
+                    limit,
+                    offset);
     }
 
     /// Границы и счётчики по каждому типу плюс время последнего синка.
@@ -157,15 +180,17 @@ public:
             };
             for (const auto& e : kTables) {
                 const std::string col(e.column);
+                // Для timestamptz дата берётся в UTC, не в поясе сессии.
+                const std::string day = col == "date" ? col : "(" + col + " AT TIME ZONE 'UTC')";
                 auto r = txn.exec(
-                    "SELECT COALESCE(json_build_object("
+                    "SELECT json_build_object("
                     "'first_date', MIN(" +
-                    col +
+                    day +
                     ")::date::text, "
                     "'last_date', MAX(" +
-                    col +
+                    day +
                     ")::date::text, "
-                    "'records', COUNT(*)), '{}'::json) FROM " +
+                    "'records', COUNT(*)) FROM " +
                     std::string(e.table));
                 out[e.type] = nlohmann::json::parse(r[0][0].template as<std::string>());
             }
@@ -198,6 +223,8 @@ public:
             return body(from, to, kNoLimit, 0).rows;
         if (type == "workouts")
             return workouts(from, to, kNoLimit, 0).rows;
+        if (type == "abnormal_heart_beat")
+            return abnormal_heart_beat(from, to, kNoLimit, 0).rows;
         return nlohmann::json::array();
     }
 
@@ -208,8 +235,12 @@ private:
     }
 
     /// Сутки UTC поверх timestamptz: полуинтервал, дружественный индексу.
+    /// Явный AT TIME ZONE 'UTC': приведение date -> timestamptz берёт
+    /// полночь в поясе сессии Postgres, а ответ обещает UTC (обзор фазы 3,
+    /// Important 4; боевая база в Etc/UTC, правка защитная).
     static std::string day_range(const std::string& column) {
-        return "(" + column + " >= $1::date::timestamptz AND " + column + " < ($2::date + 1)::timestamptz)";
+        return "(" + column + " >= $1::date::timestamp AT TIME ZONE 'UTC' AND " + column +
+               " < ($2::date + 1)::timestamp AT TIME ZONE 'UTC')";
     }
 
     template <typename... Extra>

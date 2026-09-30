@@ -1,0 +1,1 @@
+phase-3 review fixes: the csv formula guard survives leading whitespace and leaves numbers alone, abnormal heart beat events are readable and exported, day bounds no longer depend on the session time zone, the summary window follows the region zone, the probe 409/503 spec entries are valid yaml, export caps the range at 366 days
