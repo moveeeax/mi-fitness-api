@@ -5,6 +5,11 @@
  * POST создаёт строку журнала со статусом queued и кладёт задание xiaomi_sync
  * в очередь: сам синк идёт в воркере, у API нет причин держать соединение
  * минуты. Журнал читается по run_id.
+ *
+ * Авторизация: слой middleware шаблона. Маршруты не входят в
+ * api.public_paths, поэтому без принципала (JWT-кука или X-API-Key) запрос
+ * получает 401 до контроллера — тот же механизм, что у probe, подтверждён
+ * живым запросом.
  */
 
 #pragma once
@@ -14,6 +19,7 @@
 
 #include <drogon/HttpController.h>
 #include <drogon/drogon.h>
+#include <spdlog/spdlog.h>
 
 #include <nlohmann/json.hpp>
 
@@ -74,13 +80,20 @@ public:
             }
         }
 
-        Repositories::SyncRunRepository runs;
-        const long run_id = runs.create(from, to, data_types);
-        Jobs::get().submit(Jobs::XiaomiSync::kJobType,
-                           json{{"run_id", run_id}, {"from", from}, {"to", to}, {"data_types", data_types}});
-        auto resp = Response::ok(json{{"data", {{"run_id", run_id}, {"status", "queued"}}}});
-        resp->setStatusCode(k202Accepted);
-        callback(resp);
+        try {
+            Repositories::SyncRunRepository runs;
+            const long run_id = runs.create(from, to, data_types);
+            Jobs::get().submit(Jobs::XiaomiSync::kJobType,
+                               json{{"run_id", run_id}, {"from", from}, {"to", to}, {"data_types", data_types}});
+            auto resp = Response::ok(json{{"data", {{"run_id", run_id}, {"status", "queued"}}}});
+            resp->setStatusCode(k202Accepted);
+            callback(resp);
+        } catch (const std::exception& e) {
+            // База или очередь лежат: это состояние инфраструктуры, а не 500
+            // без следа в логе.
+            spdlog::warn("sync enqueue unavailable: {}", e.what());
+            callback(ErrorResponse::service_unavailable("queue_unavailable"));
+        }
     }
 
     void status(const HttpRequestPtr& /*req*/,
@@ -97,12 +110,17 @@ public:
             callback(ErrorResponse::bad_request("invalid_id", "run id must be a positive integer"));
             return;
         }
-        const auto row = Repositories::SyncRunRepository().get(run_id);
-        if (!row.has_value()) {
-            callback(ErrorResponse::not_found("run_not_found"));
-            return;
+        try {
+            const auto row = Repositories::SyncRunRepository().get(run_id);
+            if (!row.has_value()) {
+                callback(ErrorResponse::not_found("run_not_found"));
+                return;
+            }
+            callback(Response::ok(json{{"data", *row}}));
+        } catch (const std::exception& e) {
+            spdlog::warn("sync status unavailable: {}", e.what());
+            callback(ErrorResponse::service_unavailable("journal_unavailable"));
         }
-        callback(Response::ok(json{{"data", *row}}));
     }
 };
 
