@@ -6,6 +6,14 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.5] — 2026-09-30
+
+### Removed
+- the billing module is gone: wallet, PayPal client and webhook, both controllers, the decimal fuzzer, config, helm and compose wiring; migration 014 drops the empty billing tables
+- the template frontend is gone: the React SPA, its charts (cpp-frontend, cpp-env), the nginx-sync gate, compose service and CI/release plumbing are removed; version pins moved to the deploy overlays
+- the mail module and the account flows behind it are gone: confirm, reset-password, change-email, invite, auth/register, the token store and the transactional outbox (migration 015 drops their empty tables); change-password stays; users are created by the admin API
+- the messaging (Kafka) module is gone: src/messaging, its Core wiring, config keys, helm env block, compose services and dashboards; librdkafka deliberately stays in vcpkg.json — dropping it would rebuild the whole dependency world
+
 ## [1.8.4] — 2026-09-30
 
 ### Fixed

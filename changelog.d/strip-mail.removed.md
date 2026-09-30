@@ -1,1 +1,0 @@
-the mail module and the account flows behind it are gone: confirm, reset-password, change-email, invite, auth/register, the token store and the transactional outbox (migration 015 drops their empty tables); change-password stays; users are created by the admin API
