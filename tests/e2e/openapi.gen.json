@@ -813,6 +813,86 @@
      }
     }
    },
+   "CoverageResponse": {
+    "type": "object",
+    "required": [
+     "data"
+    ],
+    "properties": {
+     "data": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "object",
+       "properties": {
+        "first_date": {
+         "type": "string",
+         "format": "date",
+         "nullable": true
+        },
+        "last_date": {
+         "type": "string",
+         "format": "date",
+         "nullable": true
+        },
+        "records": {
+         "type": "integer"
+        },
+        "last_sync_at": {
+         "type": "string",
+         "nullable": true
+        }
+       }
+      }
+     }
+    }
+   },
+   "ExportResponse": {
+    "type": "object",
+    "required": [
+     "schema_version",
+     "source",
+     "generated_at",
+     "filters",
+     "records"
+    ],
+    "properties": {
+     "schema_version": {
+      "type": "string"
+     },
+     "source": {
+      "type": "string"
+     },
+     "generated_at": {
+      "type": "string"
+     },
+     "filters": {
+      "type": "object",
+      "properties": {
+       "dataset": {
+        "type": "string",
+        "nullable": true
+       },
+       "start_date": {
+        "type": "string",
+        "format": "date"
+       },
+       "end_date": {
+        "type": "string",
+        "format": "date"
+       }
+      }
+     },
+     "records": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "array",
+       "items": {
+        "type": "object"
+       }
+      }
+     }
+    }
+   },
    "MeResponse": {
     "type": "object",
     "required": [
@@ -940,7 +1020,17 @@
       }
      },
      "400": {
-      "description": "Malformed range or unknown data type",
+      "description": "Malformed range, unknown or duplicate data type",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "Job queue unavailable (queue_unavailable)",
       "content": {
        "application/json": {
         "schema": {
@@ -983,6 +1073,16 @@
            "type": "object"
           }
          }
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "Journal unavailable (journal_unavailable)",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
         }
        }
       }
@@ -1597,6 +1697,126 @@
     }
    }
   },
+  "/api/v1/data/coverage": {
+   "get": {
+    "summary": "Per-type coverage",
+    "tags": [
+     "data"
+    ],
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CoverageResponse"
+        }
+       }
+      },
+      "description": "First and last date, record count and last sync time per data type"
+     },
+     "401": {
+      "description": "Not authenticated"
+     },
+     "503": {
+      "description": "Database unavailable"
+     }
+    }
+   }
+  },
+  "/api/v1/data/export": {
+   "get": {
+    "summary": "Export rows",
+    "tags": [
+     "data"
+    ],
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "from",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "date"
+      }
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "date"
+      }
+     },
+     {
+      "name": "format",
+      "in": "query",
+      "schema": {
+       "type": "string",
+       "enum": [
+        "json",
+        "csv"
+       ],
+       "default": "json"
+      }
+     },
+     {
+      "name": "type",
+      "in": "query",
+      "schema": {
+       "type": "string",
+       "enum": [
+        "daily_activity",
+        "sleep",
+        "heart_rate",
+        "stress",
+        "spo2",
+        "body_measurements",
+        "workouts"
+       ]
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ExportResponse"
+        }
+       },
+       "text/csv": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      },
+      "description": "schema_version 1.0 envelope (json) or a flat table of one type (csv)"
+     },
+     "400": {
+      "description": "Malformed range",
+      "unknown type": null,
+      "or csv without a type": null
+     },
+     "401": {
+      "description": "Not authenticated"
+     },
+     "503": {
+      "description": "Database unavailable"
+     }
+    }
+   }
+  },
   "/api/v1/xiaomi/probe": {
    "get": {
     "summary": "Probe the Mi Fitness cloud — login, fetch one data key, count records",
@@ -1695,7 +1915,10 @@
       }
      },
      "503": {
-      "description": "Not configured, upstream refused authentication, or protocol mismatch",
+      "description": "Not configured, upstream refused authentication, or protocol mismatch"
+     },
+     "409": {
+      "description": "A sync run is in progress — probe would rotate the token under it",
       "content": {
        "application/json": {
         "schema": {
@@ -2907,7 +3130,7 @@
  "x-generated": {
   "by": "scripts/gen-openapi-json.sh",
   "source": "docs/openapi.yaml",
-  "source_bytes": 41806,
-  "source_fnv1a64": "a5b6502fbd50c3ec"
+  "source_bytes": 44981,
+  "source_fnv1a64": "a77456c1daf27564"
  }
 }

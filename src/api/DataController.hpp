@@ -21,6 +21,8 @@
 
 #include <drogon/HttpController.h>
 
+#include <nlohmann/json_fwd.hpp>
+
 #include "repositories/HealthReadRepository.hpp"
 
 namespace Api {
@@ -38,6 +40,8 @@ public:
     ADD_METHOD_TO(DataController::body, "/api/v1/data/body", Get);
     ADD_METHOD_TO(DataController::workouts, "/api/v1/data/workouts", Get);
     ADD_METHOD_TO(DataController::summary, "/api/v1/data/summary", Get);
+    ADD_METHOD_TO(DataController::coverage, "/api/v1/data/coverage", Get);
+    ADD_METHOD_TO(DataController::exportData, "/api/v1/data/export", Get);
     METHOD_LIST_END
 
     void dailyActivity(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback);
@@ -48,6 +52,8 @@ public:
     void body(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback);
     void workouts(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback);
     void summary(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback);
+    void coverage(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback);
+    void exportData(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback);
 
 private:
     /// Разобранные параметры запроса чтения.
@@ -65,6 +71,10 @@ private:
     static bool parse_query(const HttpRequestPtr& req,
                             Query& query,
                             const std::function<void(const HttpResponsePtr&)>& callback);
+
+    /// JSON-строки в CSV: заголовок из ключей первой строки, значения с
+    /// ведущими = + - @ экранируются апострофом.
+    static std::string to_csv(const nlohmann::json& rows);
 
     /// Общий хвост: выполнить чтение и завернуть страницу в ответ.
     static void respond_page(const std::function<Repositories::HealthReadRepository::Page()>& read,

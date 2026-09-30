@@ -15,6 +15,7 @@
 #pragma once
 
 #include <string>
+#include <typeinfo>
 #include <vector>
 
 #include <drogon/HttpController.h>
@@ -76,6 +77,11 @@ public:
                     callback(ErrorResponse::bad_request("unknown_data_type", "data_types must be Mi Fitness types"));
                     return;
                 }
+                if (std::find(data_types.begin(), data_types.end(), item.get<std::string>()) != data_types.end()) {
+                    // Дубль прогнал бы тип дважды и затёр запись результата.
+                    callback(ErrorResponse::bad_request("duplicate_data_type", "data_types must not repeat"));
+                    return;
+                }
                 data_types.push_back(item.get<std::string>());
             }
         }
@@ -91,7 +97,7 @@ public:
         } catch (const std::exception& e) {
             // База или очередь лежат: это состояние инфраструктуры, а не 500
             // без следа в логе.
-            spdlog::warn("sync enqueue unavailable: {}", e.what());
+            spdlog::warn("sync enqueue unavailable: {}", typeid(e).name());
             callback(ErrorResponse::service_unavailable("queue_unavailable"));
         }
     }
@@ -118,7 +124,7 @@ public:
             }
             callback(Response::ok(json{{"data", *row}}));
         } catch (const std::exception& e) {
-            spdlog::warn("sync status unavailable: {}", e.what());
+            spdlog::warn("sync status unavailable: {}", typeid(e).name());
             callback(ErrorResponse::service_unavailable("journal_unavailable"));
         }
     }

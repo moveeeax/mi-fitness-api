@@ -134,3 +134,28 @@ TEST_F(XiaomiProbeTest, UpstreamAuthFailureIsReported) {
     EXPECT_EQ(resp->statusCode(), k503ServiceUnavailable);
     EXPECT_EQ(json::parse(std::string(resp->body()))["error"], "upstream_auth");
 }
+
+// Global Constraint фазы 3: probe и синк не гоняют одновременно — оба
+// логинятся, а логин ротирует токен. При живой строке running probe
+// отвечает 409 без похода в облако.
+TEST_F(XiaomiProbeTest, ProbeRefusesWhileASyncRunIsRunning) {
+    Database::get().execute_write([](auto& txn) {
+        txn.exec(
+            "INSERT INTO sync_runs (status, requested_start, requested_end, data_types) "
+            "VALUES ('running', '2026-09-01', '2026-09-02', '{daily_activity}')");
+        return true;
+    });
+
+    const auto resp = probe("steps", "2026-09-22", "2026-09-22");
+
+    ASSERT_NE(resp, nullptr);
+    EXPECT_EQ(resp->statusCode(), k409Conflict) << resp->body();
+    const auto body = nlohmann::json::parse(std::string(resp->body()));
+    EXPECT_EQ(body["error"], "sync_in_progress");
+    // До облака не дошли: ни одного запроса в транспорте.
+    EXPECT_TRUE(transport.requests().empty());
+    Database::get().execute_write([](auto& txn) {
+        txn.exec("DELETE FROM sync_runs WHERE requested_start = '2026-09-01'");
+        return true;
+    });
+}
