@@ -560,3 +560,349 @@ void apply_daily_sleep_scores(std::vector<Domain::SleepSession>& sessions,
 }
 
 }  // namespace Xiaomi
+
+namespace Xiaomi {
+
+namespace {
+
+using detail::iso_with_offset;
+
+std::optional<double> optional_number(const nlohmann::json& payload, std::initializer_list<const char*> keys) {
+    for (const char* key : keys) {
+        if (!payload.contains(key) || payload[key].is_null()) {
+            continue;
+        }
+        const auto& value = payload[key];
+        double parsed = 0;
+        if (value.is_number()) {
+            parsed = value.get<double>();
+        } else if (value.is_string()) {
+            try {
+                parsed = std::stod(value.get<std::string>());
+            } catch (...) {
+                continue;
+            }
+        } else {
+            continue;
+        }
+        // Ноль от сервера это «нет данных», а не измеренный ноль.
+        if (parsed != 0) {
+            return parsed;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<int> optional_int(const nlohmann::json& payload, std::initializer_list<const char*> keys) {
+    const auto value = optional_number(payload, keys);
+    if (!value.has_value()) {
+        return std::nullopt;
+    }
+    return static_cast<int>(*value);
+}
+
+std::string zone_name_of(const nlohmann::json& item) {
+    const std::string zone = item.value("zone_name", std::string());
+    return zone.empty() ? "UTC" : zone;
+}
+
+std::string record_id_of(const nlohmann::json& item) {
+    if (!item.contains("time") || item["time"].is_null()) {
+        return {};
+    }
+    return item["time"].is_string() ? item["time"].get<std::string>()
+                                    : std::to_string(item["time"].get<std::int64_t>());
+}
+
+std::string collected_at_of(const nlohmann::json& item, int offset, const std::string& fallback) {
+    try {
+        return iso_with_offset(detail::record_epoch(item), offset);
+    } catch (...) {
+        return fallback;
+    }
+}
+
+}  // namespace
+
+std::vector<Domain::Workout> normalize_workouts(const std::vector<nlohmann::json>& records,
+                                                std::string_view user_id,
+                                                long& skipped) {
+    std::vector<Domain::Workout> out;
+    for (const auto& item : records) {
+        try {
+            const auto payload = detail::parse_value(item);
+            const int offset = detail::zone_offset_of(item);
+
+            std::optional<std::int64_t> start;
+            if (payload.contains("start_time") && payload["start_time"].is_number() &&
+                payload["start_time"].get<double>() != 0) {
+                start = payload["start_time"].get<std::int64_t>();
+            } else if (item.contains("time") && !item["time"].is_null()) {
+                start = detail::record_epoch(item);
+            }
+            const long duration_seconds =
+                payload.contains("duration") && payload["duration"].is_number() ? payload["duration"].get<long>() : 0;
+            std::optional<std::int64_t> end;
+            if (payload.contains("end_time") && payload["end_time"].is_number() &&
+                payload["end_time"].get<double>() != 0) {
+                end = payload["end_time"].get<std::int64_t>();
+            } else if (start.has_value()) {
+                end = *start + duration_seconds;
+            }
+            if (!start.has_value() || !end.has_value()) {
+                continue;
+            }
+            if (*start < kMinValidTimestamp || *end < kMinValidTimestamp) {
+                throw MiFitnessProtocolError("timestamp predates year 2000");
+            }
+
+            Domain::Workout w;
+            w.user_id = std::string(user_id);
+            w.start_at = iso_with_offset(*start, offset);
+            w.end_at = iso_with_offset(*end, offset);
+            w.duration_minutes = duration_seconds > 0
+                                     ? static_cast<int>(duration_seconds / 60)
+                                     : static_cast<int>(std::max<std::int64_t>(0, (*end - *start) / 60));
+            const std::string sid =
+                item.contains("sid") && item["sid"].is_string() && !item["sid"].get<std::string>().empty()
+                    ? item["sid"].get<std::string>()
+                    : std::string(user_id);
+            const std::string kind = !item.value("category", std::string()).empty()
+                                         ? item["category"].get<std::string>()
+                                     : !item.value("key", std::string()).empty() ? item["key"].get<std::string>()
+                                     : payload.contains("sport_type")            ? payload["sport_type"].dump()
+                                                                                 : "workout";
+            const std::string time_part = !record_id_of(item).empty() ? record_id_of(item) : std::to_string(*start);
+            w.workout_id = sid + "_" +
+                           (item.value("key", std::string()).empty() ? "workout" : item["key"].get<std::string>()) +
+                           "_" + time_part;
+            w.activity_type = kind;
+            w.source_record_id = record_id_of(item);
+            w.timezone = zone_name_of(item);
+            w.collected_at = collected_at_of(item, offset, w.start_at);
+            w.distance_m = optional_number(payload, {"distance"});
+            w.calories_kcal = optional_number(payload, {"calories", "total_cal"});
+            w.avg_heart_rate_bpm = optional_int(payload, {"avg_hrm"});
+            w.max_heart_rate_bpm = optional_int(payload, {"max_hrm"});
+            w.avg_pace_sec_per_km = optional_number(payload, {"avg_pace"});
+            w.max_pace_sec_per_km = optional_number(payload, {"max_pace"});
+            w.total_steps = optional_int(payload, {"steps", "total_steps"});
+            out.push_back(std::move(w));
+        } catch (const std::exception&) {
+            ++skipped;
+        }
+    }
+    return out;
+}
+
+std::vector<Domain::BodyMeasurement> normalize_body(const std::vector<nlohmann::json>& records,
+                                                    std::string_view user_id,
+                                                    long& skipped) {
+    std::vector<Domain::BodyMeasurement> out;
+    for (const auto& item : records) {
+        try {
+            const auto payload = detail::parse_value(item);
+            const int offset = detail::zone_offset_of(item);
+            const std::int64_t epoch = detail::record_epoch(item);
+
+            // Запись без веса это «только постоял на весах»: не измерение.
+            const auto weight = optional_number(payload, {"weight"});
+            if (!weight.has_value()) {
+                continue;
+            }
+            Domain::BodyMeasurement b;
+            b.user_id = std::string(user_id);
+            b.timestamp = iso_with_offset(epoch, offset);
+            b.timezone = zone_name_of(item);
+            b.collected_at = b.timestamp;
+            b.weight_kg = *weight;
+            b.bmi = optional_number(payload, {"bmi"});
+            b.body_fat_pct = optional_number(payload, {"body_fat_rate"});
+            b.muscle_mass_kg = optional_number(payload, {"muscle_rate"});
+            b.water_pct = optional_number(payload, {"moisture_rate"});
+            b.bone_mass_kg = optional_number(payload, {"bone_mass"});
+            b.visceral_fat_score = optional_int(payload, {"visceral_fat"});
+            b.basal_metabolism_kcal = optional_int(payload, {"basal_metabolism"});
+            b.metabolic_age = optional_int(payload, {"body_age"});
+            out.push_back(std::move(b));
+        } catch (const std::exception&) {
+            ++skipped;
+        }
+    }
+    return out;
+}
+
+std::vector<Domain::HeartRateSample> normalize_heart_rate(const std::vector<nlohmann::json>& records,
+                                                          const std::vector<nlohmann::json>& resting_records,
+                                                          std::string_view user_id,
+                                                          long& skipped) {
+    std::vector<Domain::HeartRateSample> out;
+    for (const auto& item : records) {
+        try {
+            const auto payload = detail::parse_value(item);
+            const int offset = detail::zone_offset_of(item);
+            const std::int64_t epoch = detail::record_epoch(item);
+
+            Domain::HeartRateSample s;
+            s.user_id = std::string(user_id);
+            s.timestamp = iso_with_offset(epoch, offset);
+            s.timezone = zone_name_of(item);
+            s.collected_at = s.timestamp;
+            s.source_record_id = record_id_of(item);
+            s.bpm = payload.value("bpm", 0);
+            const int type = payload.contains("type") && payload["type"].is_number() ? payload["type"].get<int>() : 0;
+            s.sample_type = type == 0 ? "passive" : "active";
+            out.push_back(std::move(s));
+        } catch (const std::exception&) {
+            ++skipped;
+        }
+    }
+    for (const auto& item : resting_records) {
+        try {
+            const auto payload = detail::parse_value(item);
+            const int offset = detail::zone_offset_of(item);
+            std::int64_t epoch = 0;
+            if (payload.contains("date_time") && payload["date_time"].is_number() &&
+                payload["date_time"].get<double>() != 0) {
+                epoch = payload["date_time"].get<std::int64_t>();
+                if (epoch < kMinValidTimestamp) {
+                    throw MiFitnessProtocolError("timestamp predates year 2000");
+                }
+            } else {
+                epoch = detail::record_epoch(item);
+            }
+            Domain::HeartRateSample s;
+            s.user_id = std::string(user_id);
+            s.timestamp = iso_with_offset(epoch, offset);
+            s.timezone = zone_name_of(item);
+            s.collected_at = collected_at_of(item, offset, s.timestamp);
+            s.source_record_id = record_id_of(item);
+            s.bpm = payload.value("bpm", 0);
+            s.sample_type = "resting";
+            out.push_back(std::move(s));
+        } catch (const std::exception&) {
+            ++skipped;
+        }
+    }
+    return out;
+}
+
+std::vector<Domain::Spo2Sample> normalize_spo2(const std::vector<nlohmann::json>& records,
+                                               std::string_view user_id,
+                                               long& skipped) {
+    std::vector<Domain::Spo2Sample> out;
+    for (const auto& item : records) {
+        try {
+            const auto payload = detail::parse_value(item);
+            const int offset = detail::zone_offset_of(item);
+            const auto value = optional_number(payload, {"spo2", "value"});
+            if (!value.has_value()) {
+                continue;
+            }
+            std::int64_t epoch = 0;
+            if (payload.contains("time") && payload["time"].is_number() && payload["time"].get<double>() != 0) {
+                epoch = payload["time"].get<std::int64_t>();
+                if (epoch < kMinValidTimestamp) {
+                    throw MiFitnessProtocolError("timestamp predates year 2000");
+                }
+            } else {
+                epoch = detail::record_epoch(item);
+            }
+            Domain::Spo2Sample s;
+            s.user_id = std::string(user_id);
+            s.timestamp = iso_with_offset(epoch, offset);
+            s.timezone = zone_name_of(item);
+            s.collected_at = collected_at_of(item, offset, s.timestamp);
+            s.source_record_id = record_id_of(item);
+            s.spo2_pct = static_cast<int>(*value);
+            out.push_back(std::move(s));
+        } catch (const std::exception&) {
+            ++skipped;
+        }
+    }
+    return out;
+}
+
+std::vector<Domain::StressSample> normalize_stress(const std::vector<nlohmann::json>& records,
+                                                   std::string_view user_id,
+                                                   long& skipped) {
+    std::vector<Domain::StressSample> out;
+    for (const auto& item : records) {
+        try {
+            const auto payload = detail::parse_value(item);
+            const int offset = detail::zone_offset_of(item);
+            const auto value = optional_number(payload, {"stress", "score", "value"});
+            if (!value.has_value()) {
+                continue;
+            }
+            std::int64_t epoch = 0;
+            if (payload.contains("time") && payload["time"].is_number() && payload["time"].get<double>() != 0) {
+                epoch = payload["time"].get<std::int64_t>();
+                if (epoch < kMinValidTimestamp) {
+                    throw MiFitnessProtocolError("timestamp predates year 2000");
+                }
+            } else {
+                epoch = detail::record_epoch(item);
+            }
+            Domain::StressSample s;
+            s.user_id = std::string(user_id);
+            s.timestamp = iso_with_offset(epoch, offset);
+            s.timezone = zone_name_of(item);
+            s.collected_at = collected_at_of(item, offset, s.timestamp);
+            s.source_record_id = record_id_of(item);
+            s.stress_score = static_cast<int>(*value);
+            s.level = s.stress_score < 30 ? "low" : s.stress_score < 60 ? "medium" : "high";
+            out.push_back(std::move(s));
+        } catch (const std::exception&) {
+            ++skipped;
+        }
+    }
+    return out;
+}
+
+std::vector<Domain::AbnormalHeartBeatEvent> normalize_abnormal_heart_beat(const std::vector<nlohmann::json>& records,
+                                                                          std::string_view user_id,
+                                                                          long& skipped) {
+    std::vector<Domain::AbnormalHeartBeatEvent> out;
+    for (const auto& item : records) {
+        try {
+            const auto payload = detail::parse_value(item);
+            const int offset = detail::zone_offset_of(item);
+
+            std::optional<std::int64_t> start;
+            if (payload.contains("start_time") && payload["start_time"].is_number() &&
+                payload["start_time"].get<double>() != 0) {
+                start = payload["start_time"].get<std::int64_t>();
+            } else if (item.contains("time") && !item["time"].is_null()) {
+                start = detail::record_epoch(item);
+            }
+            if (!start.has_value()) {
+                continue;
+            }
+            std::int64_t end = *start;
+            if (payload.contains("end_time") && payload["end_time"].is_number() &&
+                payload["end_time"].get<double>() != 0) {
+                end = payload["end_time"].get<std::int64_t>();
+            }
+            if (*start < kMinValidTimestamp || end < kMinValidTimestamp) {
+                throw MiFitnessProtocolError("timestamp predates year 2000");
+            }
+
+            Domain::AbnormalHeartBeatEvent e;
+            e.user_id = std::string(user_id);
+            e.event_id = !record_id_of(item).empty() ? record_id_of(item) : std::to_string(*start);
+            e.start_at = iso_with_offset(*start, offset);
+            e.end_at = iso_with_offset(end, offset);
+            e.timezone = zone_name_of(item);
+            e.collected_at = collected_at_of(item, offset, e.start_at);
+            e.source_record_id = record_id_of(item);
+            e.duration_seconds = optional_int(payload, {"duration"});
+            out.push_back(std::move(e));
+        } catch (const std::exception&) {
+            ++skipped;
+        }
+    }
+    return out;
+}
+
+}  // namespace Xiaomi
