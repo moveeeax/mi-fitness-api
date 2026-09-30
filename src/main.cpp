@@ -298,6 +298,11 @@ int run_server(const std::string& config_file) {
     int pre_stop_delay_sec = config.get<int>("shutdown.pre_stop_delay_sec", "SHUTDOWN_PRE_STOP_DELAY_SEC", 5);
 
     drogon::app()
+        // Загрузок файлов в сервисе нет (контент-модуль вырезан), но drogon
+        // на старте создаёт решётку каталогов под свой uploadPath. Дефолт
+        // ./uploads упирается в read-only корень контейнера и сыплет 256
+        // строк ошибок на каждый старт; /tmp это писаемый emptyDir.
+        .setUploadPath("/tmp/uploads")
         .addListener(host, port)
         .setThreadNum(threads)
         .setClientMaxBodySize(static_cast<size_t>(max_body_bytes))
