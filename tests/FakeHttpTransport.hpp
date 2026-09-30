@@ -34,6 +34,14 @@ public:
         reply({200, "", {{"set-cookie", "serviceToken=abc; Path=/"}}});
     }
 
+    /// Падение транспорта: send бросает MiFitnessProtocolError с этим текстом,
+    /// как CurlTransport на таймауте или сетевой ошибке curl.
+    void reply_transport_error(std::string message) {
+        Queued item;
+        item.throw_message = std::move(message);
+        queued_.push_back(std::move(item));
+    }
+
     /// Зашифрованный ответ данных. Шифруется в момент запроса: signed_nonce
     /// зависит от _nonce, который клиент кладёт в тело, и до прихода запроса
     /// подделке неизвестен. Используются те же функции крипты, что и в клиенте,
@@ -50,6 +58,9 @@ public:
         }
         Queued item = queued_.front();
         queued_.erase(queued_.begin());
+        if (!item.throw_message.empty()) {
+            throw Xiaomi::MiFitnessProtocolError("Xiaomi request failed: " + item.throw_message);
+        }
         if (item.encrypt) {
             const std::string nonce = Xiaomi::Crypto::b64_decode(form_value(request.body, "_nonce"));
             const std::string signed_nonce = Xiaomi::Crypto::signed_nonce(kSsecurityB64, nonce);
@@ -99,6 +110,7 @@ private:
         Xiaomi::HttpResponse response;
         bool encrypt = false;
         std::string plaintext;
+        std::string throw_message;
     };
 
     std::vector<Xiaomi::HttpRequest> requests_;

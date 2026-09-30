@@ -182,3 +182,81 @@ TEST(XiaomiFetch, FetchBeforeLoginIsAnAuthError) {
     EXPECT_THROW(client.fetch_key("steps", "2026-09-22", "2026-09-22", std::nullopt), Xiaomi::MiFitnessAuthError);
     EXPECT_TRUE(transport.requests().empty());
 }
+
+// --- Ретраи запросов данных --------------------------------------------------
+// Живой бэкфил июля-сентября падал на 502/504 шлюза Xiaomi и таймаутах curl:
+// облако отвечает на глубокие диапазоны нестабильно. Python-мост ретраил такие
+// отказы до трёх попыток с бэкоффом; порт обязан вести себя так же. Бэкофф в
+// тестах нулевой, иначе каждый прогон спит по секундам.
+
+TEST(XiaomiRetry, TransientServerErrorIsRetried) {
+    FakeHttpTransport transport;
+    transport.reply_login();
+    transport.reply({502, "Bad Gateway", {}});
+    transport.reply_encrypted(page(R"({"a":1})", false, "null"));
+    Xiaomi::CloudClient client(transport, seed(), [](const auto&) {});
+    client.set_retry_backoff_base_ms(0);
+    client.login();
+
+    const auto items = client.fetch_key("steps", "2026-09-22", "2026-09-23", std::nullopt);
+
+    ASSERT_EQ(items.size(), 1u);
+    // Два запроса логина, отбитая попытка и её повтор.
+    EXPECT_EQ(transport.requests().size(), 4u);
+}
+
+TEST(XiaomiRetry, TransportFailureIsRetried) {
+    FakeHttpTransport transport;
+    transport.reply_login();
+    transport.reply_transport_error("Timeout was reached");
+    transport.reply_encrypted(page(R"({"a":1})", false, "null"));
+    Xiaomi::CloudClient client(transport, seed(), [](const auto&) {});
+    client.set_retry_backoff_base_ms(0);
+    client.login();
+
+    const auto items = client.fetch_key("steps", "2026-09-22", "2026-09-23", std::nullopt);
+
+    ASSERT_EQ(items.size(), 1u);
+    EXPECT_EQ(transport.requests().size(), 4u);
+}
+
+TEST(XiaomiRetry, GivesUpAfterThreeAttempts) {
+    FakeHttpTransport transport;
+    transport.reply_login();
+    transport.reply({502, "", {}});
+    transport.reply({503, "", {}});
+    transport.reply({504, "", {}});
+    Xiaomi::CloudClient client(transport, seed(), [](const auto&) {});
+    client.set_retry_backoff_base_ms(0);
+    client.login();
+
+    EXPECT_THROW(client.fetch_key("steps", "2026-09-22", "2026-09-23", std::nullopt), Xiaomi::MiFitnessProtocolError);
+    // Ровно три попытки, не больше: логин 2 + данные 3.
+    EXPECT_EQ(transport.requests().size(), 5u);
+}
+
+TEST(XiaomiRetry, AuthRefusalIsNotRetried) {
+    FakeHttpTransport transport;
+    transport.reply_login();
+    transport.reply({401, "", {}});
+    Xiaomi::CloudClient client(transport, seed(), [](const auto&) {});
+    client.set_retry_backoff_base_ms(0);
+    client.login();
+
+    EXPECT_THROW(client.fetch_key("steps", "2026-09-22", "2026-09-23", std::nullopt), Xiaomi::MiFitnessAuthError);
+    // Повтор сжёг бы попытки: нужен свежий токен, а не ещё один заход.
+    EXPECT_EQ(transport.requests().size(), 3u);
+}
+
+TEST(XiaomiRetry, EnvelopeErrorCodeIsNotRetried) {
+    FakeHttpTransport transport;
+    transport.reply_login();
+    transport.reply_encrypted(R"({"code":42,"result":{}})");
+    Xiaomi::CloudClient client(transport, seed(), [](const auto&) {});
+    client.set_retry_backoff_base_ms(0);
+    client.login();
+
+    EXPECT_THROW(client.fetch_key("steps", "2026-09-22", "2026-09-23", std::nullopt), Xiaomi::MiFitnessProtocolError);
+    // Ответ дошёл и расшифровался: повтор того же запроса не изменит код.
+    EXPECT_EQ(transport.requests().size(), 3u);
+}
