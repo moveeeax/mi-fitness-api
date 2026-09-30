@@ -6,6 +6,12 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.9.1] — 2026-09-30
+
+### Added
+- read routes: eight GET endpoints under /api/v1/data (activity, sleep, heart rate, stress, SpO2, body, workouts, per-day summary) with a required date range, limit/offset pagination and full totals; time-range indexes for the sample tables
+- phase 3: /api/v1/data/coverage and /api/v1/data/export (schema_version 1.0 json envelope, csv per type with formula escaping), probe answers 409 while a sync runs, duplicate data_types rejected, chunk_days floored at 1, pqxx texts kept out of warn logs
+
 ## [1.9.0] — 2026-09-30
 
 ### Added

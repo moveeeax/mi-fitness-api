@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(mi_fitness_api VERSION 1.9.0 LANGUAGES CXX)
+project(mi_fitness_api VERSION 1.9.1 LANGUAGES CXX)
 
 # Release builds stamp the git tag in instead of the baked value above:
 # docker/Dockerfile declares ARG APP_VERSION and forwards it as

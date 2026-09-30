@@ -1,1 +1,0 @@
-phase 3: /api/v1/data/coverage and /api/v1/data/export (schema_version 1.0 json envelope, csv per type with formula escaping), probe answers 409 while a sync runs, duplicate data_types rejected, chunk_days floored at 1, pqxx texts kept out of warn logs
