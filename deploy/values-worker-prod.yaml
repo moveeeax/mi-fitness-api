@@ -1,0 +1,44 @@
+# Боевые значения воркера mi-fitness-api-worker: тот же namespace, та же база
+# и Redis, что у API. Секреты через extraEnvFrom из mi-fitness-app.
+
+image:
+  repository: ghcr.io/moveeeax/mi-fitness-api-worker
+  tag: "1.8.0"
+
+replicaCount: 1
+
+extraEnvFrom:
+  - secretRef:
+      name: mi-fitness-app
+
+externalDatabase:
+  host: postgresql-rw.db.svc.cluster.local
+  port: 5432
+  name: mi_fitness
+  user: mi-fitness
+  password: ""
+  poolSize: 3
+  # Синк пишет на праймери, реплика воркеру не нужна.
+  replicaHost: ""
+  migrationsEnabled: false
+
+externalRedis:
+  url: "tcp://redis.db.svc.cluster.local:6379"
+  useSentinel: false
+  db: 3
+
+worker:
+  # Воркер тянет только перечисленные очереди: без xiaomi_sync задания синка
+  # копились бы в Redis молча. Почта выключена, её очереди не подписываем.
+  types: "xiaomi_sync"
+  # Синк один на систему по построению.
+  concurrency: 1
+
+jobs:
+  enabled: true
+
+mail:
+  enabled: false
+
+tracing:
+  enabled: false
