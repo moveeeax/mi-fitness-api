@@ -6,6 +6,11 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.2] — 2026-09-30
+
+### Fixed
+- sync no longer gives up on the first transient cloud failure: transport errors, 429 and 5xx responses are retried up to 3 times with exponential backoff, matching the python bridge
+
 ## [1.8.1] — 2026-09-30
 
 ### Fixed
