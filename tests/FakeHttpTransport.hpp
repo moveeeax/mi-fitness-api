@@ -22,7 +22,7 @@ public:
     /// ssecurity, который отдаёт reply_login: "secret-material!" в base64.
     static constexpr const char* kSsecurityB64 = "c2VjcmV0LW1hdGVyaWFsIQ==";
 
-    void reply(Xiaomi::HttpResponse response) { queued_.push_back({std::move(response), false, {}}); }
+    void reply(Xiaomi::HttpResponse response) { queued_.push_back({std::move(response), false, {}, {}}); }
 
     /// Успешный двухступенчатый логин: ответ с полями и редирект с кукой.
     void reply_login(const std::string& rotated_token = "NEWTOKEN") {
@@ -47,7 +47,7 @@ public:
     /// подделке неизвестен. Используются те же функции крипты, что и в клиенте,
     /// поэтому удачная расшифровка заодно перекрёстно их проверяет.
     void reply_encrypted(std::string envelope_json) {
-        queued_.push_back({{200, "", {}}, true, std::move(envelope_json)});
+        queued_.push_back({{200, "", {}}, true, std::move(envelope_json), {}});
     }
 
     Xiaomi::HttpResponse send(const Xiaomi::HttpRequest& request) override {
