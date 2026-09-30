@@ -332,14 +332,14 @@ PY
 #     failure mode that shipped GHCR pins for tags that never existed through
 #     two releases. Flips ONE of the three pins in values-stage.yaml.
 break_helm_tag_drift() {
-    python3 - "$1/helm/cpp-env/values-stage.yaml" <<'PY'
+    python3 - "$1/deploy/values-worker-prod.yaml" <<'PY'
 import re, sys
 path = sys.argv[1]
 with open(path, encoding="utf-8") as fh:
     text = fh.read()
 pat = re.compile(r'(?m)^([ \t]*tag:[ \t]*")[0-9][0-9.]*(")')
-if len(pat.findall(text)) != 3:
-    sys.exit("break_helm_tag_drift: expected exactly 3 pinned image tags in %s, found %d"
+if len(pat.findall(text)) != 1:
+    sys.exit("break_helm_tag_drift: expected exactly 1 pinned image tag in %s, found %d"
              % (path, len(pat.findall(text))))
 text, n = pat.subn(r"\g<1>9.9.9\g<2>", text, count=1)
 if n != 1:
@@ -385,40 +385,6 @@ with open(path, "w", encoding="utf-8") as fh:
 PY
 }
 
-# 9. A location added to the compose nginx.conf only — the drift that 404s
-#    part of the public surface in exactly one environment.
-break_nginx_location_drift() {
-    python3 - "$1/frontend/nginx.conf" <<'PY'
-import re, sys
-path = sys.argv[1]
-with open(path, encoding="utf-8") as fh:
-    text = fh.read()
-text, n = re.subn(r"(?m)^(\s*location = /healthz .*)$",
-                  r"\1\n    location = /selftest-drift { return 404; }", text)
-if n != 1:
-    sys.exit("break_nginx_location_drift: inserted after %d healthz location(s) in %s "
-             "— expected exactly 1" % (n, path))
-with open(path, "w", encoding="utf-8") as fh:
-    fh.write(text)
-PY
-}
-
-# 10. client_max_body_size raised in the compose copy only — uploads would
-#     413 in exactly one environment.
-break_nginx_body_cap() {
-    python3 - "$1/frontend/nginx.conf" <<'PY'
-import re, sys
-path = sys.argv[1]
-with open(path, encoding="utf-8") as fh:
-    text = fh.read()
-text, n = re.subn(r"client_max_body_size\s+[0-9]+[kKmMgG]?", "client_max_body_size 999m", text)
-if n < 1:
-    sys.exit("break_nginx_body_cap: no client_max_body_size directive in %s" % path)
-with open(path, "w", encoding="utf-8") as fh:
-    fh.write(text)
-PY
-}
-
 # 11. The prod overlay's rate limiter flipped to fail-open: a Redis blip
 #     would silently disable the login brute-force throttle.
 break_helm_fail_open() {
@@ -442,16 +408,14 @@ PY
 #     planted string is a deliberately silly non-credential; the point is
 #     that the key is non-empty at all.
 break_helm_committed_jwt() {
-    python3 - "$1/helm/cpp-env/values.yaml" <<'PY'
+    python3 - "$1/helm/mi-fitness-api/values.yaml" <<'PY'
 import re, sys
 path = sys.argv[1]
 with open(path, encoding="utf-8") as fh:
     text = fh.read()
-# All three: credentials.jwtSecret plus the mi-fitness-api / mi-fitness-api-worker mirrors.
-text, n = re.subn(r'(?m)^(\s*)jwtSecret: ""', r'\1jwtSecret: "planted-by-check-selftest"', text)
-if n != 3:
-    sys.exit("break_helm_committed_jwt: planted %d jwtSecret value(s) in %s — expected "
-             "exactly 3 (credentials + mi-fitness-api + mi-fitness-api-worker mirrors)" % (n, path))
+text, n = re.subn(r'(?m)^(\s*)jwtSecret: ""', r'\1jwtSecret: "planted-by-check-selftest"', text, count=1)
+if n != 1:
+    sys.exit("break_helm_committed_jwt: planted %d jwtSecret value(s) in %s — expected exactly 1" % (n, path))
 with open(path, "w", encoding="utf-8") as fh:
     fh.write(text)
 PY
@@ -589,21 +553,21 @@ run_case bucket-dup-api check-test-buckets.sh break_bucket_dup_api \
     'Base64Test'
 
 run_case changelog-phantom-release check-version-sync.sh break_changelog_phantom_release \
-    "CMakeLists.txt CHANGELOG.md helm .template-version project.env" \
+    "CMakeLists.txt CHANGELOG.md helm deploy .template-version project.env" \
     'version drift' \
     'newest release heading [99.99.99]'
 
 run_case changelog-heading-format check-version-sync.sh break_changelog_heading_format \
-    "CMakeLists.txt CHANGELOG.md helm .template-version project.env" \
+    "CMakeLists.txt CHANGELOG.md helm deploy .template-version project.env" \
     "could not parse a released '## [x.y.z]' heading"
 
 run_case helm-tag-drift check-version-sync.sh break_helm_tag_drift \
-    "CMakeLists.txt CHANGELOG.md helm .template-version project.env" \
-    'helm image tag drift: helm/cpp-env/values-stage.yaml pins tag "9.9.9"' \
+    "CMakeLists.txt CHANGELOG.md helm deploy .template-version project.env" \
+    'helm image tag drift: deploy/values-worker-prod.yaml pins tag "9.9.9"' \
     'A stale pin deploys an old image'
 
 run_case chart-appversion-drift check-version-sync.sh break_chart_appversion_drift \
-    "CMakeLists.txt CHANGELOG.md helm .template-version project.env" \
+    "CMakeLists.txt CHANGELOG.md helm deploy .template-version project.env" \
     'appVersion drift: helm/mi-fitness-api/Chart.yaml has appVersion "0.0.1"'
 
 # В форке (project.env: TEMPLATE_FORK=1) гейт пропускает проверку штампа по
@@ -613,29 +577,18 @@ if grep -qs '^TEMPLATE_FORK=1' "$REPO/project.env"; then
     echo "SELFTEST SKIP [template-version-drift]: fork mode — the stamp is owned by sync-upstream.sh"
 else
     run_case template-version-drift check-version-sync.sh break_template_version_drift \
-        "CMakeLists.txt CHANGELOG.md helm .template-version project.env" \
+        "CMakeLists.txt CHANGELOG.md helm deploy .template-version project.env" \
         '.template-version drift: the stamp says "0.0.9"' \
         'wrong three-way patch base'
 fi
 
-run_case nginx-location-drift check-frontend-nginx-sync.sh break_nginx_location_drift \
-    "frontend/nginx.conf helm/cpp-frontend/templates/configmap.yaml" \
-    'location sets drifted' \
-    'only in frontend/nginx.conf' \
-    'location = /selftest-drift'
-
-run_case nginx-body-cap check-frontend-nginx-sync.sh break_nginx_body_cap \
-    "frontend/nginx.conf helm/cpp-frontend/templates/configmap.yaml" \
-    'client_max_body_size drifted' \
-    'will 413 in one environment only'
-
 run_case helm-fail-open check-helm-render.sh break_helm_fail_open \
-    "helm" \
+    "helm deploy" \
     'rate limiter is fail-OPEN' \
     'Set rateLimit.failOpen=false.'
 
 run_case helm-committed-jwt check-helm-render.sh break_helm_committed_jwt \
-    "helm" \
+    "helm deploy" \
     'rendered Secret carries a committed credential (jwt-secret)'
 
 run_case module-dep-cycle-edge check-module-deps.sh break_module_dep_cycle_edge \

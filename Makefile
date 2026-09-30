@@ -30,7 +30,7 @@ COMPOSE := $(COMPOSE_BIN) -f docker/docker-compose.yml
 # Every optional profile — for targets that must see the WHOLE stack
 # (down/ps/up-everything). Keep in sync with docker-compose.yml profiles.
 ALL_PROFILES := --profile with-replica --profile with-sentinel --profile with-kafka \
-                --profile with-worker --profile with-frontend --profile with-monitoring
+                --profile with-worker --profile with-monitoring
 ENV     := --env-file docker/.env
 
 .PHONY: up up-pull up-replica up-sentinel up-kafka up-worker up-full up-monitoring \
@@ -48,7 +48,7 @@ ENV     := --env-file docker/.env
 
 # ── Startup targets ──────────────────────────────────────────────
 
-# up-* targets PULL the prebuilt public images (app/worker/frontend) that
+# up-* targets PULL the prebuilt public images (app/worker) that
 # GitLab CI publishes on master, then start — no local compile on your mac.
 # Infra images (postgres/redis/kafka) pull as usual; the app uses `--pull
 # missing` so a fork that built its own image (or renamed it) isn't clobbered by
@@ -222,7 +222,6 @@ ci-local:          ## Reproduce CI locally: format check + drift + spectral + ti
 	@./scripts/check-routes-registered.sh
 	@./scripts/check-test-buckets.sh
 	@./scripts/check-version-sync.sh
-	@./scripts/check-frontend-nginx-sync.sh
 	@./scripts/check-module-deps.sh
 	@echo "==> [3/6] helm render validate"
 	@$(MAKE) --no-print-directory helm-validate
@@ -246,7 +245,7 @@ helm-lint:         ## helm lint + helm template render for both charts
 	done
 	@echo "==> helm-lint: all charts pass"
 
-helm-validate:     ## Render the cpp-env umbrella + assert deploy-path invariants (port/host/mail)
+helm-validate:     ## Render the production charts + assert deploy-path invariants
 	@./scripts/check-helm-render.sh
 
 tidy:              ## Run clang-tidy via the builder image (CI-parity)
@@ -558,43 +557,6 @@ smoke:             ## curl the running stack through a sample of endpoints
 	else \
 		./scripts/smoke.sh ; \
 	fi
-
-# ── Frontend (React SPA in frontend/) ────────────────────────────
-
-.PHONY: frontend-install frontend-dev frontend-build frontend-lint \
-        frontend-typecheck frontend-test frontend-format frontend-gen-api \
-        frontend-up frontend-image
-
-frontend-install:  ## npm install in the frontend/ project
-	cd frontend && npm install
-
-frontend-dev:      ## Vite dev server on http://localhost:5173 (proxies /api -> :8080)
-	cd frontend && npm run dev
-
-frontend-gen-api:  ## Regenerate frontend/src/lib/api/schema.gen.ts from docs/openapi.yaml
-	cd frontend && npm run gen:api
-
-frontend-build:    ## Production build: tsc -b && vite build -> frontend/dist/
-	cd frontend && npm run build
-
-frontend-lint:     ## ESLint over frontend/src
-	cd frontend && npm run lint
-
-frontend-format:   ## Prettier --write over frontend/src
-	cd frontend && npm run format
-
-frontend-typecheck: ## tsc --noEmit
-	cd frontend && npm run typecheck
-
-frontend-test:     ## Vitest single-shot
-	cd frontend && npm run test
-
-frontend-up:       ## Pull + start the frontend container alongside the base stack
-	$(COMPOSE) $(ENV) --profile with-frontend up -d --pull missing frontend
-	@echo "==> SPA on :3001 (http://localhost:3001)"
-
-frontend-image:    ## Build the frontend Docker image only
-	docker build -f frontend/Dockerfile -t $(IMAGE)-frontend:$(GIT_SHA) -t $(IMAGE)-frontend:latest .
 
 # ── Cleanup ──────────────────────────────────────────────────────
 

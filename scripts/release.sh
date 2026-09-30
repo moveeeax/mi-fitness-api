@@ -18,10 +18,9 @@
 #   bumped by this script:
 #     CMakeLists.txt                   project(VERSION ...) — the baked version
 #                                      Core::version() / GET /health report
-#     helm/cpp-env/values.yaml         3 image-tag pins (api, worker, frontend)
-#     helm/cpp-env/values-demo.yaml    3 image-tag pins
-#     helm/cpp-env/values-stage.yaml   3 image-tag pins
-#     helm/{mi-fitness-api,mi-fitness-api-worker,cpp-frontend,cpp-env}/Chart.yaml
+#     deploy/values-prod.yaml          1 image-tag pin (api)
+#     deploy/values-worker-prod.yaml   1 image-tag pin (worker)
+#     helm/{mi-fitness-api,mi-fitness-api-worker}/Chart.yaml
 #                                      appVersion (default tag for standalone
 #                                      installs + app.kubernetes.io/version)
 #     .template-version                the stamp scripts/sync-upstream.sh reads
@@ -143,13 +142,13 @@ bump CMakeLists.txt \
     '(?m)^(project\(.*VERSION[ \t]+)[0-9][0-9.]*' "\\g<1>$new_version" 1
 echo "  bumped CMakeLists.txt        project(VERSION $new_version)"
 
-for overlay in values.yaml values-demo.yaml values-stage.yaml; do
-    bump "helm/cpp-env/$overlay" \
-        '(?m)^([ \t]*tag:[ \t]*")[0-9][0-9.]*(")' "\\g<1>$new_version\\g<2>" 3
-    echo "  bumped helm/cpp-env/$overlay  3 image-tag pins -> $new_version"
+for overlay in deploy/values-prod.yaml deploy/values-worker-prod.yaml; do
+    bump "$overlay" \
+        '(?m)^([ \t]*tag:[ \t]*")[0-9][0-9.]*(")' "\\g<1>$new_version\\g<2>" 1
+    echo "  bumped $overlay  image-tag pin -> $new_version"
 done
 
-for chart in mi-fitness-api mi-fitness-api-worker cpp-frontend cpp-env; do
+for chart in mi-fitness-api mi-fitness-api-worker; do
     bump "helm/$chart/Chart.yaml" \
         '(?m)^(appVersion:[ \t]*")[^"]*(")' "\\g<1>$new_version\\g<2>" 1
     echo "  bumped helm/$chart/Chart.yaml  appVersion -> $new_version"
@@ -170,8 +169,8 @@ echo ""
 # --- show the human what happened and what is next ---------------------------
 echo ""
 git -C "$REPO" --no-pager diff --stat -- \
-    CHANGELOG.md changelog.d CMakeLists.txt .template-version helm/cpp-env \
-    helm/mi-fitness-api/Chart.yaml helm/mi-fitness-api-worker/Chart.yaml helm/cpp-frontend/Chart.yaml
+    CHANGELOG.md changelog.d CMakeLists.txt .template-version deploy \
+    helm/mi-fitness-api/Chart.yaml helm/mi-fitness-api-worker/Chart.yaml
 cat <<EOF
 
 Next steps (nothing has been committed):

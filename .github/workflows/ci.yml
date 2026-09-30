@@ -195,8 +195,6 @@ jobs:
         run: ./scripts/check-test-buckets.sh
       - name: Check version sync (CMakeLists + helm pins + appVersions vs CHANGELOG)
         run: ./scripts/check-version-sync.sh
-      - name: Check frontend nginx configs in sync (compose vs helm)
-        run: ./scripts/check-frontend-nginx-sync.sh
       - name: Check module dependency DAG (src/ include edges)
         run: ./scripts/check-module-deps.sh
       - name: Check config key sync (src reads vs config jsons, CONFIG.md, helm env lists)
@@ -421,85 +419,6 @@ jobs:
           sudo chmod +x /usr/local/bin/yq
       - name: Validate helm render
         run: ./scripts/check-helm-render.sh
-
-  frontend:
-    runs-on: ubuntu-latest
-    # Frontend gate — typecheck + lint + production build. Regenerates
-    # schema.gen.ts from docs/openapi.yaml and fails if the committed copy
-    # is stale (see the "schema.gen.ts up to date" step).
-    timeout-minutes: 10
-    defaults:
-      run: { working-directory: frontend }
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          fetch-depth: 2  # HEAD^ for the push-event scope diff
-
-      - name: Scope — does the diff touch the frontend?
-        # Self-scoping, NOT a workflow-level `paths:` filter: the job always
-        # STARTS (required-check semantics stay honest — a skipped required
-        # job reports success while checking nothing), computes the diff
-        # itself, and exits green in seconds when none of its inputs changed.
-        # docs/openapi.yaml is an input: schema.gen.ts is generated from it.
-        # Fail-open: any trouble computing the diff ⇒ run the job in full.
-        id: scope
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          RELEVANT: '^(frontend/|docs/openapi\.yaml$|\.github/workflows/ci\.yml$)'
-        run: |
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            changed=$(gh api --paginate \
-              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
-              --jq '.[].filename') || changed=""
-          else
-            # push: first-parent diff of the pushed head (checkout fetched
-            # depth 2). HEAD^ is absent on a root commit → fail open below.
-            changed=$(git diff --name-only HEAD^..HEAD 2>/dev/null) || changed=""
-          fi
-          if [ -z "$changed" ]; then
-            echo "could not determine the changed files — failing open, job runs in full"
-            echo "relevant=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          printf 'changed files:\n%s\n' "$changed"
-          if printf '%s\n' "$changed" | grep -qE "$RELEVANT"; then
-            echo "relevant=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "relevant=false" >> "$GITHUB_OUTPUT"
-            echo "paths untouched — verified nothing this job covers is affected; exiting green"
-          fi
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        if: steps.scope.outputs.relevant == 'true'
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-      - name: Install dependencies
-        if: steps.scope.outputs.relevant == 'true'
-        run: npm ci --no-audit --no-fund
-      - name: Regenerate OpenAPI types
-        if: steps.scope.outputs.relevant == 'true'
-        run: npm run gen:api
-      - name: schema.gen.ts up to date with docs/openapi.yaml
-        # gen:api just rewrote schema.gen.ts from the spec. If the committed
-        # copy differs, someone changed docs/openapi.yaml without running
-        # `make frontend-gen-api` — fail so the stale file can't ride green.
-        if: steps.scope.outputs.relevant == 'true'
-        run: git diff --exit-code -- src/lib/api/schema.gen.ts
-      - name: Typecheck
-        if: steps.scope.outputs.relevant == 'true'
-        run: npm run typecheck
-      - name: Unit tests
-        if: steps.scope.outputs.relevant == 'true'
-        run: npm test
-      - name: Lint
-        if: steps.scope.outputs.relevant == 'true'
-        run: npm run lint  # flat config, zero-warning baseline
-      - name: Production build
-        if: steps.scope.outputs.relevant == 'true'
-        run: npm run build
 
   clang-tidy:
     runs-on: ubuntu-latest

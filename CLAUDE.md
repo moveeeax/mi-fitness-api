@@ -13,8 +13,8 @@
 Следствие принято сознательно: ошибки, которые видит только GCC или
 санитайзеры, находятся прогоном CI, и цикл задачи из-за этого длиннее.
 
-C++20 REST service template: Drogon + PostgreSQL + Redis, vcpkg/CMake,
-React SPA in `frontend/`, Helm charts in `helm/`. `docs/INDEX.md` is the
+C++20 REST service: Drogon + PostgreSQL + Redis, vcpkg/CMake,
+Helm charts in `helm/`. `docs/INDEX.md` is the
 map of all documentation; `docs/CONVENTIONS.md` is the pattern reference.
 
 ## Prime directive: scaffold, don't hand-roll
@@ -40,7 +40,6 @@ map of all documentation; `docs/CONVENTIONS.md` is the pattern reference.
 - Feature module (config flag + `Core::<name>_enabled()` + compose/helm/docs
   wiring): `./scripts/new-module.sh <name>`
 - Migration: `make new-migration SLUG=<slug>`
-- React page: `./scripts/new-react-page.sh`
 - Changelog entry: drop a fragment `changelog.d/<topic>.<type>.md` (type ∈
   added|changed|fixed|removed|security; bullet text WITHOUT the leading
   `- `, format: `changelog.d/README.md`) — parallel-safe, two PRs never
@@ -132,14 +131,14 @@ gates by construction. Hand-rolled versions usually don't.
    is major 17, the CI pin; fix: `pip install clang-format==17.0.6`)
 2. `./scripts/check-openapi-drift.sh && ./scripts/check-routes-registered.sh
    && ./scripts/check-test-buckets.sh && ./scripts/check-version-sync.sh
-   && ./scripts/check-frontend-nginx-sync.sh && ./scripts/check-module-deps.sh
+   && ./scripts/check-module-deps.sh
    && ./scripts/check-config-sync.sh && ./scripts/assemble-changelog.sh --check`
    — seconds, no build.
    Touched a `check-*` script (or assemble-changelog.sh)? Also run
    `./scripts/check-selftest.sh` — in this FORK the template-version-drift
    case self-skips (TEMPLATE_FORK=1: the stamp is owned by sync-upstream.sh
    and legitimately lags after the fork's own first release) —
-   plants 20 breakages and requires every gate to catch and name them
+   plants 17 breakages and requires every gate to catch and name them
    (needs helm+yq; in CI `gate-selftest` self-scopes to diffs touching
    `scripts/`, `helm/` or `.github/workflows/`, with a nightly
    unconditional backstop in `.github/workflows/gates-nightly.yml`)

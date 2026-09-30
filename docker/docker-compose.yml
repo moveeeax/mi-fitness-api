@@ -14,7 +14,7 @@ x-data-env: &data-env
   REDIS_DB: ${REDIS_DB:-0}
 
 # Auth — JWT in HttpOnly cookies. Defaults keep auth disabled so `make up`
-# stays open. The `with-frontend` profile / .env.everything flips
+# stays open. The `.env.everything` file flips
 # AUTH_MODE=jwt + secrets so the SPA logs in. The worker needs the secret
 # too: account_email jobs issue confirmation/reset tokens.
 x-auth-env: &auth-env
@@ -560,28 +560,6 @@ services:
     restart: unless-stopped
     profiles:
       - with-kafka
-
-  # React SPA — built once at image build, served by nginx with /api/*
-  # proxied to the `app` container. Visit http://localhost:3001; the
-  # backend's :8080 stays available for direct API hits.
-  # Opt-in via profile `with-frontend` so plain `make up` stays
-  # backend-only (faster cold start, no Node toolchain pulled).
-  frontend:
-    image: ${FRONTEND_IMAGE:-ghcr.io/your-registry/your-project/mi-fitness-api-frontend:latest}
-    build:
-      context: ..
-      dockerfile: frontend/Dockerfile
-    container_name: mi_fitness_api_frontend
-    ports:
-      - "3001:8080"
-    depends_on:
-      app:
-        condition: service_healthy
-    networks:
-      - app-network
-    restart: unless-stopped
-    profiles:
-      - with-frontend
 
   # Mailpit — local SMTP catcher for dev. Inbox UI on :8025, SMTP on :1025.
   # No TLS, no auth — point MAIL_SMTP_HOST=mailpit / MAIL_SMTP_PORT=1025

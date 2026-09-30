@@ -24,7 +24,7 @@
 #   5. Verifies no functional reference survived.
 #
 # After this script the tree passes check-openapi-drift /
-# check-routes-registered / check-frontend-nginx-sync / check-module-deps /
+# check-routes-registered / check-module-deps /
 # check-config-sync by construction. Migration numbering keeps a gap at 006 —
 # the runner applies files in numeric order and does not require contiguity.
 #
@@ -272,6 +272,6 @@ Content module removed. Notes:
     plans under docs/superpowers/) still DESCRIBE the module as a worked
     example; they are history, not wiring.
   * verify: ./scripts/check-openapi-drift.sh && ./scripts/check-routes-registered.sh
-            && ./scripts/check-frontend-nginx-sync.sh && ./scripts/check-module-deps.sh
+            && ./scripts/check-module-deps.sh
             && ./scripts/check-config-sync.sh && ./scripts/check-test-buckets.sh
 EOF

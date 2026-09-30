@@ -58,26 +58,24 @@ if [ "$cmake_version" != "$changelog_version" ]; then
     fail=1
 fi
 
-# --- helm image-tag pins (cpp-env umbrella overlays) -------------------------
-# Each tracked overlay pins exactly 3 app image tags (mi-fitness-api, mi-fitness-api-worker,
-# cpp-frontend). The count is asserted so a restructure that stops the parser
-# from matching fails loudly instead of degrading into a green no-op.
-for overlay in values.yaml values-demo.yaml values-stage.yaml; do
-    path="helm/cpp-env/$overlay"
-    tags="$(sed -n 's/^[[:space:]]*tag:[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p' "$REPO/$path")"
+# --- helm image-tag pins (deploy overlays) -----------------------------------
+# The two production overlays each pin exactly 1 app image tag. The count is
+# asserted so a restructure that stops the parser from matching fails loudly
+# instead of degrading into a green no-op.
+for overlay in deploy/values-prod.yaml deploy/values-worker-prod.yaml; do
+    tags="$(sed -n 's/^[[:space:]]*tag:[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p' "$REPO/$overlay")"
     count=0
     [ -n "$tags" ] && count="$(printf '%s\n' "$tags" | wc -l | tr -d ' ')"
-    if [ "$count" -ne 3 ]; then
-        echo "✗ $path: expected exactly 3 pinned image tags (mi-fitness-api, mi-fitness-api-worker," >&2
-        echo "    cpp-frontend), parsed $count — the file layout changed under the" >&2
-        echo "    parser; fix the pins or re-anchor this check." >&2
+    if [ "$count" -ne 1 ]; then
+        echo "✗ $overlay: expected exactly 1 pinned image tag, parsed $count — the" >&2
+        echo "    file layout changed under the parser; fix the pin or re-anchor this check." >&2
         fail=1
         continue
     fi
     while IFS= read -r tag; do
         if [ "$tag" != "$changelog_version" ]; then
             {
-                echo "✗ helm image tag drift: $path pins tag \"$tag\""
+                echo "✗ helm image tag drift: $overlay pins tag \"$tag\""
                 echo "    but the newest CHANGELOG release heading is [$changelog_version]."
                 echo "    A stale pin deploys an old image (or one that never existed:"
                 echo "    values-stage.yaml carried v1.4.0 GHCR tags for two releases)."
@@ -126,7 +124,7 @@ fi
 # --- Chart.yaml appVersion ---------------------------------------------------
 # Default image tag for standalone chart installs and the source of the
 # app.kubernetes.io/version label on every rendered object.
-for chart in mi-fitness-api mi-fitness-api-worker cpp-frontend cpp-env; do
+for chart in mi-fitness-api mi-fitness-api-worker; do
     path="helm/$chart/Chart.yaml"
     app_version="$(sed -n 's/^appVersion:[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO/$path" | head -1)"
     if [ -z "$app_version" ]; then
@@ -151,4 +149,4 @@ if [ "$fail" -ne 0 ]; then
 fi
 
 echo "✓ version in sync: $cmake_version (CMakeLists.txt == newest CHANGELOG heading" \
-    "== 9 helm image-tag pins == 4 Chart.yaml appVersions${tv_summary})"
+    "== 2 deploy image-tag pins == 2 Chart.yaml appVersions${tv_summary})"
