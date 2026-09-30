@@ -424,4 +424,51 @@ std::vector<nlohmann::json> CloudClient::fetch_daily_sleep_reports(std::string_v
     }
 }
 
+std::vector<nlohmann::json> CloudClient::fetch_sport_records(std::string_view start_date, std::string_view end_date) {
+    const std::string base_url = host_for_region(credentials_.region);
+    const auto [start_time, end_time] = range_to_timestamps(start_date, end_date, credentials_.region);
+
+    std::vector<nlohmann::json> items;
+    std::set<std::string> seen_cursors;
+    std::optional<std::string> next_key;
+    for (int page = 1;; ++page) {
+        if (page > max_pages_) {
+            throw MiFitnessProtocolError("sport pagination exceeded the page ceiling");
+        }
+        nlohmann::json payload{{"start_time", start_time}, {"end_time", end_time}, {"limit", 50}};
+        if (next_key.has_value()) {
+            payload["next_key"] = *next_key;
+        }
+        const nlohmann::json result = post_signed(base_url, "/app/v1/data/get_sport_records_by_time", payload);
+        if (result.contains("sport_records") && result["sport_records"].is_array()) {
+            for (const auto& item : result["sport_records"]) {
+                items.push_back(item);
+            }
+        }
+        const bool has_more = [&result] {
+            if (!result.contains("has_more")) {
+                return false;
+            }
+            const auto& flag = result["has_more"];
+            if (flag.is_boolean()) {
+                return flag.get<bool>();
+            }
+            return flag.is_number() && flag.get<double>() != 0.0;
+        }();
+        if (!has_more || !result.contains("next_key") || result["next_key"].is_null()) {
+            break;
+        }
+        const auto& cursor_json = result["next_key"];
+        const std::string cursor = cursor_json.is_string() ? cursor_json.get<std::string>() : cursor_json.dump();
+        if (cursor.empty()) {
+            break;
+        }
+        if (!seen_cursors.insert(cursor).second) {
+            throw MiFitnessProtocolError("sport pagination cursor loop detected");
+        }
+        next_key = cursor;
+    }
+    return items;
+}
+
 }  // namespace Xiaomi

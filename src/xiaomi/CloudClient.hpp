@@ -62,6 +62,12 @@ public:
                                           std::optional<std::string_view> region);
 
     /**
+     * @brief Тренировки за диапазон: отдельный эндпоинт, limit 50, поле
+     *        sport_records. Правила курсора как у fetch_key.
+     */
+    std::vector<nlohmann::json> fetch_sport_records(std::string_view start_date, std::string_view end_date);
+
+    /**
      * @brief Суточные отчёты сна своего аккаунта за диапазон дат пробуждения.
      *
      * Отдельный эндпоинт агрегатов с более строгим курсором: нестроковый,

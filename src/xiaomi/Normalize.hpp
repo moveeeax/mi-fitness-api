@@ -67,6 +67,39 @@ void apply_daily_sleep_scores(std::vector<Domain::SleepSession>& sessions,
                               const std::vector<nlohmann::json>& reports,
                               int default_zone_offset);
 
+/// Тренировки из записей отдельного эндпоинта. end_time при отсутствии это
+/// start_time + duration. Все метрики через «ноль это NULL».
+std::vector<Domain::Workout> normalize_workouts(const std::vector<nlohmann::json>& records,
+                                                std::string_view user_id,
+                                                long& skipped);
+
+/// Вес и состав тела. Запись без веса пропускается целиком: это не измерение.
+std::vector<Domain::BodyMeasurement> normalize_body(const std::vector<nlohmann::json>& records,
+                                                    std::string_view user_id,
+                                                    long& skipped);
+
+/// Пульс: обычные записи (type 0 passive, иначе active) плюс отдельный ключ
+/// покоя с sample_type resting и временем из date_time | time.
+std::vector<Domain::HeartRateSample> normalize_heart_rate(const std::vector<nlohmann::json>& records,
+                                                          const std::vector<nlohmann::json>& resting_records,
+                                                          std::string_view user_id,
+                                                          long& skipped);
+
+/// SpO2 из spo2 | value; запись без значения пропускается.
+std::vector<Domain::Spo2Sample> normalize_spo2(const std::vector<nlohmann::json>& records,
+                                               std::string_view user_id,
+                                               long& skipped);
+
+/// Стресс из stress | score | value; уровень <30 low, <60 medium, иначе high.
+std::vector<Domain::StressSample> normalize_stress(const std::vector<nlohmann::json>& records,
+                                                   std::string_view user_id,
+                                                   long& skipped);
+
+/// Аномалии ритма; end_time при отсутствии равен start_time.
+std::vector<Domain::AbnormalHeartBeatEvent> normalize_abnormal_heart_beat(const std::vector<nlohmann::json>& records,
+                                                                          std::string_view user_id,
+                                                                          long& skipped);
+
 namespace detail {
 
 /// Локальные секунды эпохи записи: time + zone_offset. Бросает на битом или
