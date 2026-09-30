@@ -25,4 +25,10 @@ void install_for_testing(HttpTransport* transport);
 /// Пустая строка означает «не настроено», решает вызывающий.
 std::string token_key_b64();
 
+/// Предел одного HTTP-запроса к облаку в секундах
+/// (xiaomi.http_timeout_seconds / MI_FITNESS_HTTP_TIMEOUT, дефолт 20).
+/// Глубокий бэкфил облако отдаёт дольше 20 секунд, ручка поднимает предел
+/// без пересборки. До инициализации конфига возвращает дефолт.
+long http_timeout_seconds();
+
 }  // namespace Xiaomi::Service

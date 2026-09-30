@@ -289,3 +289,4 @@ CONFIG_FILE=config/local.json ./mi_fitness_api
 | `MI_FITNESS_RESEED` | `xiaomi.reseed` | bool | `false` | Emergency lever: overwrite the stored token with the seed on next boot. Turn off afterwards |
 | `MI_FITNESS_CHUNK_DAYS` | `xiaomi.sync_chunk_days` | int | `7` | Width of one sync window in days |
 | `MI_FITNESS_SYNC_TYPE_TIMEOUT` | `xiaomi.sync_type_timeout_seconds` | int | `180` | Wall-clock budget per data type, checked between chunks. Raise for deep backfills |
+| `MI_FITNESS_HTTP_TIMEOUT` | `xiaomi.http_timeout_seconds` | int | `20` | libcurl budget for ONE cloud request. Deep backfill responses take longer than the default |
