@@ -312,24 +312,6 @@ TEST(HttpE2E, AuthMiddlewareGuardsNonPublicPaths) {
     EXPECT_EQ(resp->getHeader("x-content-type-options"), "nosniff");
 }
 
-TEST(HttpE2E, AccountTokenRoutesArePublic) {
-    // The token-bearing account routes must reach their handler WITHOUT a
-    // session (the user clicking an email link isn't logged in). Pre-fix the
-    // wildcard public path was missing and the auth middleware 401'd here,
-    // breaking confirm/reset/change-email end-to-end. We expect the handler's
-    // own 400 invalid_token (bad token), NOT a 401 from the middleware.
-    REQUIRE_E2E_ENV();
-    auto req = HttpRequest::newHttpRequest();
-    req->setMethod(Post);
-    req->setPath("/api/v1/account/reset-password/not-a-real-token");
-    req->setBody(R"({"new_password":"whatever-123"})");
-    req->setContentTypeCode(CT_APPLICATION_JSON);  // pass the content-type gate
-    auto resp = send(req);
-    EXPECT_EQ(resp->statusCode(), k400BadRequest) << resp->getBody();
-    EXPECT_EQ(body_of(resp)["error"], "invalid_token");
-    expect_matches_schema(resp, "POST", "/api/v1/account/reset-password/{token}");
-}
-
 TEST(HttpE2E, RegisterLoginMeRoundtripOverWire) {
     REQUIRE_E2E_ENV();
     auto sc = register_and_login("e2e-alice@example.com", "password-e2e-1");

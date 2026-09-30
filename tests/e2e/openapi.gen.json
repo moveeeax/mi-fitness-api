@@ -894,6 +894,16 @@
        }
       }
      },
+     "422": {
+      "description": "Same Idempotency-Key replayed with a different body",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
      "415": {
       "description": "Body content type is not application/json (content-type middleware — applies to every JSON API endpoint)",
       "content": {
@@ -1908,7 +1918,7 @@
  "x-generated": {
   "by": "scripts/gen-openapi-json.sh",
   "source": "docs/openapi.yaml",
-  "source_bytes": 28747,
-  "source_fnv1a64": "336021b84a38a649"
+  "source_bytes": 28947,
+  "source_fnv1a64": "dcc7f0395d791740"
  }
 }

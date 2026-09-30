@@ -412,6 +412,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: Same Idempotency-Key replayed with a different body
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '415':
           description: Body content type is not application/json (content-type middleware — applies to every JSON API endpoint)
           content:
