@@ -43,6 +43,30 @@ ActivityResult normalize_daily_activity(const std::vector<nlohmann::json>& step_
                                         const std::vector<nlohmann::json>& calorie_records,
                                         std::string_view user_id);
 
+/**
+ * @brief Сессии сна из сырых записей ключа sleep.
+ *
+ * Приоритеты полей, маппинг стадий и правила валидности балла сняты с эталона
+ * дословно. Запись без обеих границ пропускается. skipped растёт на битых
+ * записях и никогда не роняет тип целиком.
+ */
+std::vector<Domain::SleepSession> normalize_sleep(const std::vector<nlohmann::json>& records,
+                                                  std::string_view user_id,
+                                                  long& skipped);
+
+/**
+ * @brief Применить суточные отчёты к сессиям: одна однозначная главная сессия.
+ *
+ * Балл никогда не выдумывается и не размазывается: сегментные границы отчёта
+ * авторитетны, без них выбор возможен только среди одного источника и
+ * единственной самой длинной сессии, конфликт баллов оставляет NULL, своя
+ * оценка записи не перетирается. default_zone_offset подставляется отчётам без
+ * zone_offset (регион cn это 28800).
+ */
+void apply_daily_sleep_scores(std::vector<Domain::SleepSession>& sessions,
+                              const std::vector<nlohmann::json>& reports,
+                              int default_zone_offset);
+
 namespace detail {
 
 /// Локальные секунды эпохи записи: time + zone_offset. Бросает на битом или
