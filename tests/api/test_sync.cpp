@@ -46,7 +46,8 @@ protected:
 
     HttpResponsePtr get_status(const std::string& id) {
         HttpResponsePtr captured;
-        controller.status(TestHelpers::make_request(Get), [&](const HttpResponsePtr& r) { captured = r; }, id);
+        controller.status(
+            TestHelpers::make_request(Get), [&](const HttpResponsePtr& r) { captured = r; }, id);
         return captured;
     }
 };

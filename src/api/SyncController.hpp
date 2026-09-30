@@ -21,6 +21,7 @@
 // would cycle). Pull only the small shared helpers.
 #include "api/RequestUtils.hpp"
 #include "jobs/Jobs.hpp"
+#include "jobs/XiaomiSyncHandler.hpp"
 #include "repositories/SyncRunRepository.hpp"
 #include "sync/SyncService.hpp"
 #include "utils/ErrorResponse.hpp"
