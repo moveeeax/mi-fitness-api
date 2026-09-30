@@ -15,7 +15,6 @@
 #include "api/HandlerSupport.hpp"
 #include "api/RequestUtils.hpp"
 #include "api/Validation.hpp"
-#include "email/AccountEmails.hpp"
 #include "repositories/RoleRepository.hpp"
 #include "repositories/UserRepository.hpp"
 #include "security/Audit.hpp"
@@ -72,39 +71,6 @@ void AdminController::createUser(const HttpRequestPtr& req, std::function<void(c
         created.role = *role;
         Security::Audit::record(actor_of(req), "user.create", "user", created.id, {{"email", created.email}});
         callback(Response::created({{"data", json(created)}}));
-    });
-}
-
-void AdminController::inviteUser(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
-    API_REQUIRE_ADMIN(req, callback);
-    json body;
-    if (!Validation::parse_body(req, body, callback))
-        return;
-    Validation::Errors errs;
-    Validation::require(errs, body, "email");
-    Validation::email(errs, body, "email");
-    if (errs.any()) {
-        callback(Validation::response_400(errs));
-        return;
-    }
-    auto role = resolve_role(body, /*invalid_message=*/"", callback);
-    if (!role)
-        return;
-
-    with_repo_errors(callback, "admin inviteUser", [&] {
-        Repositories::UserRepository users;
-        // No password yet — they'll set one via the invite link.
-        auto created = users.create(body["email"].get<std::string>(),
-                                    std::nullopt,
-                                    Validation::opt_string(body, "first_name"),
-                                    Validation::opt_string(body, "last_name"),
-                                    role->id,
-                                    /*confirmed=*/false);
-        // Attach the role we already loaded instead of re-querying.
-        created.role = *role;
-        Email::AccountEmails::send_invite(created);
-        Security::Audit::record(actor_of(req), "user.invite", "user", created.id, {{"email", created.email}});
-        callback(Response::created({{"data", json(created)}, {"message", "Invitation sent"}}));
     });
 }
 

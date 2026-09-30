@@ -15,8 +15,6 @@ Set `CONFIG_FILE` to point at a different JSON file (e.g.
 
 | Env | JSON key | Type | Default | Notes |
 |---|---|---|---|---|
-| `APP_NAME` | `app.name` | string | `App` | Display name used in email subjects / templates |
-| `APP_BASE_URL` | `app.base_url` | string | `http://localhost:8080` | Public origin used to build links in account emails (confirm / reset / change-email) |
 | `APP_ENV` | `app.env` | string | `development` | Environment label used by boot-time config validation. `production` / `prod` makes `AUTH_MODE=none` a fatal boot error and warns on insecure combinations (cookie `secure=false`, rate limit off / fail-open, docs on, cookie auth without CSRF) |
 
 ## Server
@@ -186,7 +184,6 @@ For URL components: `REDIS_HOST`, `REDIS_PORT`.
 | `JOBS_VISIBILITY_TIMEOUT_SEC` | `jobs.visibility_timeout_sec` | int | `0` | Processing lease: a job whose worker dies is re-queued after this many seconds. `0` disables leases (legacy behaviour) |
 | `JOBS_DLQ_METRIC_REFRESH_SEC` | `jobs.dlq_metric_refresh_sec` | int | `10` | Exports `jobs_dlq_depth{type="..."}` plus an aggregate `type="_total"` |
 | `JOBS_QUEUE_METRIC_REFRESH_SEC` | `jobs.queue_metric_refresh_sec` | int | `10` | Same bookkeeping for the waiting queue: `jobs_queue_depth{type="..."}` plus `type="_total"` |
-| `OUTBOX_DRAIN_INTERVAL_SEC` | `outbox.drain_interval_sec` | int | `0` | Transactional outbox (`src/jobs/Outbox.hpp`): how often the API pod relays `outbox` table rows to the job queue. `0` (default) disables draining — the pattern is opt-in; rows written via `Outbox::enqueue` sit in Postgres until a deploy enables this. Needs `jobs.enabled=true`. |
 | `DB_REPLICA_LAG_METRIC_REFRESH_SEC` | `database.replica_lag_metric_refresh_sec` | int | `15` | Refresh interval for the `db_replica_lag_seconds` gauge. Only registered when read replicas are configured (primary has no replay timestamp). |
 
 ## Billing module
@@ -213,18 +210,6 @@ outage can never affect the money path.
 
 | Env | JSON key | Type | Default | Notes |
 |---|---|---|---|---|
-| `MAIL_ENABLED` | `mail.enabled` | bool | `false` | Off → links are logged at INFO instead of sent |
-| `MAIL_VIA_JOBS` | `mail.via_jobs` | bool | `true` | Route account emails through the `account_email` job queue when Jobs is enabled (worker must subscribe to that type); falls back to inline send when Jobs is off or enqueue fails |
-| `MAIL_SMTP_HOST` | `mail.smtp_host` | string | `mailpit` | `config.json` default targets the Mailpit dev sidecar |
-| `MAIL_SMTP_PORT` | `mail.smtp_port` | int | `1025` | |
-| `MAIL_SMTP_USERNAME` | `mail.smtp_username` | string | — | Empty → anonymous |
-| `MAIL_SMTP_PASSWORD` | `mail.smtp_password` | string | — | |
-| `MAIL_SMTP_USE_TLS` | `mail.smtp_use_tls` | bool | `false` | STARTTLS; implicit TLS on port 465 |
-| `MAIL_FROM` | `mail.from` | string | `noreply@example.com` | |
-| `MAIL_FROM_NAME` | `mail.from_name` | string | `App` | |
-| `MAIL_SUBJECT_PREFIX` | `mail.subject_prefix` | string | `[App] ` | Note the trailing space. If the prefix doesn't end in a space, one is inserted between prefix and subject automatically |
-| `MAIL_TEMPLATES_DIR` | `mail.templates_dir` | string | `templates/email` | Relative to the working directory |
-| `MAIL_TIMEOUT_SEC` | `mail.timeout_sec` | int | `30` | |
 
 ## Worker (second binary, `mi_fitness_api_worker`)
 

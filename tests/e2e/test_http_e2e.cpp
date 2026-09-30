@@ -34,8 +34,11 @@
 #include "core/Core.hpp"
 #include "domain/Role.hpp"
 #include "openapi_check.hpp"
+#include "repositories/RoleRepository.hpp"
+#include "repositories/UserRepository.hpp"
 #include "security/Auth.hpp"
 #include "security/Jwt.hpp"
+#include "security/Password.hpp"
 #include "test_helpers.hpp"
 
 using json = nlohmann::json;
@@ -194,10 +197,23 @@ void attach_session(const HttpRequestPtr& req, const SessionCookies& sc) {
         req->addCookie(cookie_cfg.refresh_name, sc.refresh);
 }
 
+// Регистрация из API удалена зачисткой 2026-09-30: пользователей заводит
+// админ. Сервер живёт в этом же процессе, строка садится напрямую в базу.
+void seed_user(const std::string& email, const std::string& password) {
+    Repositories::RoleRepository roles;
+    auto role = roles.find_default();
+    ASSERT_TRUE(role.has_value());
+    Repositories::UserRepository repo;
+    repo.create(email,
+                Security::Password::hash(password),
+                std::nullopt,
+                std::nullopt,
+                role->id,
+                /*confirmed=*/true);
+}
+
 SessionCookies register_and_login(const std::string& email, const std::string& password) {
-    auto reg = send(json_post("/api/v1/auth/register", {{"email", email}, {"password", password}}));
-    EXPECT_EQ(reg->statusCode(), k201Created) << reg->getBody();
-    expect_matches_schema(reg, "POST", "/api/v1/auth/register");
+    seed_user(email, password);
     auto login = send(json_post("/api/v1/auth/login", {{"email", email}, {"password", password}}));
     EXPECT_EQ(login->statusCode(), k200OK) << login->getBody();
     expect_matches_schema(login, "POST", "/api/v1/auth/login");
@@ -370,32 +386,31 @@ TEST(HttpE2E, LogoutRevokesRefreshToken) {
 
 TEST(HttpE2E, IdempotencyKeyReplaysResponse) {
     REQUIRE_E2E_ENV();
+    seed_user("e2e-idem@example.com", "password-e2e-1");
     const json body = {{"email", "e2e-idem@example.com"}, {"password", "password-e2e-1"}};
 
-    auto first = json_post("/api/v1/auth/register", body);
+    auto first = json_post("/api/v1/auth/login", body);
     first->addHeader("Idempotency-Key", "e2e-key-001");
     auto r1 = send(first);
-    ASSERT_EQ(r1->statusCode(), k201Created) << r1->getBody();
-    expect_matches_schema(r1, "POST", "/api/v1/auth/register");
+    ASSERT_EQ(r1->statusCode(), k200OK) << r1->getBody();
+    expect_matches_schema(r1, "POST", "/api/v1/auth/login");
 
-    // Identical retry: without the middleware this would be 409 email_taken;
-    // with it, the cached 201 is replayed.
-    auto second = json_post("/api/v1/auth/register", body);
+    // Identical retry: the middleware replays the cached 200.
+    auto second = json_post("/api/v1/auth/login", body);
     second->addHeader("Idempotency-Key", "e2e-key-001");
     auto r2 = send(second);
-    EXPECT_EQ(r2->statusCode(), k201Created) << r2->getBody();
+    EXPECT_EQ(r2->statusCode(), k200OK) << r2->getBody();
     EXPECT_EQ(r2->getHeader("x-idempotent-replayed"), "true");
     // The replayed body must STILL match the spec — a cached response is a
     // response.
-    expect_matches_schema(r2, "POST", "/api/v1/auth/register");
+    expect_matches_schema(r2, "POST", "/api/v1/auth/login");
 
     // Same key + DIFFERENT body → 422 conflict.
-    auto third =
-        json_post("/api/v1/auth/register", {{"email", "e2e-other@example.com"}, {"password", "password-e2e-1"}});
+    auto third = json_post("/api/v1/auth/login", {{"email", "e2e-other@example.com"}, {"password", "password-e2e-1"}});
     third->addHeader("Idempotency-Key", "e2e-key-001");
     auto r3 = send(third);
     EXPECT_EQ(r3->statusCode(), k422UnprocessableEntity);
-    expect_matches_schema(r3, "POST", "/api/v1/auth/register");
+    expect_matches_schema(r3, "POST", "/api/v1/auth/login");
 }
 
 TEST(HttpE2E, AdminGateChecksPermissionBitmask) {

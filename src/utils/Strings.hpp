@@ -56,22 +56,12 @@ namespace Utils::Strings {
 inline constexpr const char* kDefaultPublicPathsCsv =
     "/,/healthz,/ready,/health,/metrics,"
     "/api/v1/docs,/api/v1/openapi.yaml,"
-    "/api/v1/auth/login,/api/v1/auth/register,/api/v1/auth/refresh,"
-    "/api/v1/account/confirm/*,/api/v1/account/reset-password-request,"
-    "/api/v1/account/reset-password/*,/api/v1/account/change-email/*,"
-    "/api/v1/account/join-from-invite/*,"
-    "/api/v1/billing/paypal/webhook";
+    "/api/v1/auth/login,/api/v1/auth/refresh";
 
 /**
  * @brief Public endpoints that must STILL be rate-limited despite being
- *        auth-public. These are the brute-force / mail-bombing surfaces:
- *        login & register (credential stuffing), refresh (token churn),
- *        reset-password-request (mail bomb), the token-bearing links
- *        (reset / confirm / change-email / invite — guessable-token attempts),
- *        and the PayPal webhook (a spoofed/replayed flood of POSTs here is
- *        real load on Billing::PayPalClient::verify_webhook_signature's own
- *        outbound call to PayPal — worth the strict per-IP tier same as the
- *        rest).
+ *        auth-public. These are the brute-force surfaces: login
+ *        (credential stuffing) and refresh (token churn).
  *
  * This is kDefaultPublicPathsCsv minus the
  * infra and static surface (`/`, `/healthz`, `/ready`, `/health`, `/metrics`,
@@ -80,12 +70,7 @@ inline constexpr const char* kDefaultPublicPathsCsv =
  * auth and content surfaces would be skipped too, leaving them wide open.
  * Matched the same way as public paths (exact, or trailing `*` prefix).
  */
-inline constexpr const char* kDefaultProtectedPathsCsv =
-    "/api/v1/auth/login,/api/v1/auth/register,/api/v1/auth/refresh,"
-    "/api/v1/account/confirm/*,/api/v1/account/reset-password-request,"
-    "/api/v1/account/reset-password/*,/api/v1/account/change-email/*,"
-    "/api/v1/account/join-from-invite/*,"
-    "/api/v1/billing/paypal/webhook";
+inline constexpr const char* kDefaultProtectedPathsCsv = "/api/v1/auth/login,/api/v1/auth/refresh";
 
 /**
  * @brief True if @p path is covered by @p public_paths — exact match, or a

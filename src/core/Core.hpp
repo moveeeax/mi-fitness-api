@@ -6,7 +6,7 @@
  * Declarations only — the bodies live in Core.cpp (compiled once into
  * app_core; ADR 0003 as amended 2026-08-22): including this header no
  * longer pulls the 13 subsystem headers (database/pqxx, cache/redis++,
- * jobs, PayPal, mailer, storage, OTel/prometheus, ...) into the
+ * jobs, storage, OTel/prometheus, ...) into the
  * including TU — those includes moved to Core.cpp. Only the binary entry
  * points and api/HealthController.hpp may include this header
  * (check-module-deps rule 2); everyone else consults the tiny
@@ -142,17 +142,6 @@ private:
     // Registers db_replica_lag_seconds — how far a read replica trails the
     // primary, in seconds. Only registered when replicas are configured.
     static void register_replication_lag_metric_(Config::AppConfig& cfg);
-
-    // Periodically prune expired single-use token nonces (used_tokens,
-    // migration 002). Unlike the old Redis TTL nonce these rows are permanent,
-    // so without a reaper the table + its index grow monotonically.
-    static void register_token_reaper_();
-
-    // Schedules the transactional-outbox drain (Jobs::Outbox::drain) every
-    // outbox.drain_interval_sec seconds. Opt-in: the default 0 schedules
-    // nothing, so the outbox table sits inert unless a deploy turns it on.
-    // Server-mode only (Tasks isn't initialized in the worker).
-    static void register_outbox_drain_(Config::AppConfig& cfg);
 
     // Registers the subsystem probes the template ships with. Services
     // that add their own modules can call Core::get().register_health_check

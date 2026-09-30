@@ -48,25 +48,10 @@
     "id": "worker-1",
     "types": [
       "default",
-      "account_email",
-      "email.send",
       "webhook.deliver"
     ],
     "concurrency": 2,
     "health_port": 9091,
     "brpop_timeout": 5
-  },
-  "mail": {
-    "enabled": "${MAIL_ENABLED:-false}",
-    "via_jobs": "${MAIL_VIA_JOBS:-true}",
-    "smtp_host": "${MAIL_SMTP_HOST:-mailpit}",
-    "smtp_port": "${MAIL_SMTP_PORT:-1025}",
-    "smtp_username": "${MAIL_SMTP_USERNAME:-}",
-    "smtp_password": "${MAIL_SMTP_PASSWORD:-}",
-    "smtp_use_tls": "${MAIL_SMTP_USE_TLS:-false}",
-    "from": "${MAIL_FROM:-noreply@example.com}",
-    "from_name": "${MAIL_FROM_NAME:-App}",
-    "subject_prefix": "${MAIL_SUBJECT_PREFIX:-[App] }",
-    "timeout_sec": 30
   }
 }

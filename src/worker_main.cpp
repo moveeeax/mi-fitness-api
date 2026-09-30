@@ -28,7 +28,6 @@
 
 #include "cache/Cache.hpp"
 #include "core/Core.hpp"
-#include "email/AccountEmailWorker.hpp"
 #include "jobs/BuiltinHandlers.hpp"
 #include "jobs/Dispatcher.hpp"
 #include "jobs/Jobs.hpp"

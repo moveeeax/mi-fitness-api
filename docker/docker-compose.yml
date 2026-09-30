@@ -1,5 +1,4 @@
 # Shared environment fragments. app and worker must agree on these — the
-# worker sends account emails (tokens + SMTP + links), so a key added to one
 # list but not the other produces silent anonymous-SMTP / wrong-link bugs.
 # YAML merge keys need map-form environment blocks below.
 x-data-env: &data-env
@@ -16,7 +15,6 @@ x-data-env: &data-env
 # Auth — JWT in HttpOnly cookies. Defaults keep auth disabled so `make up`
 # stays open. The `.env.everything` file flips
 # AUTH_MODE=jwt + secrets so the SPA logs in. The worker needs the secret
-# too: account_email jobs issue confirmation/reset tokens.
 x-auth-env: &auth-env
   AUTH_MODE: ${AUTH_MODE:-none}
   JWT_SECRET: ${JWT_SECRET:-}
@@ -27,23 +25,6 @@ x-auth-env: &auth-env
   AUTH_COOKIE_SAMESITE: ${AUTH_COOKIE_SAMESITE:-Lax}
   AUTH_COOKIE_ACCESS: ${AUTH_COOKIE_ACCESS:-__Host-access}
   AUTH_COOKIE_REFRESH: ${AUTH_COOKIE_REFRESH:-__Host-refresh}
-
-# Mail — points at the Mailpit dev sidecar by default. Full credential set:
-# with a production STARTTLS server, a missing username/password here means
-# both containers silently connect anonymously.
-x-mail-env: &mail-env
-  MAIL_ENABLED: ${MAIL_ENABLED:-false}
-  MAIL_VIA_JOBS: ${MAIL_VIA_JOBS:-true}
-  MAIL_SMTP_HOST: ${MAIL_SMTP_HOST:-mailpit}
-  MAIL_SMTP_PORT: ${MAIL_SMTP_PORT:-1025}
-  MAIL_SMTP_USERNAME: ${MAIL_SMTP_USERNAME:-}
-  MAIL_SMTP_PASSWORD: ${MAIL_SMTP_PASSWORD:-}
-  MAIL_SMTP_USE_TLS: ${MAIL_SMTP_USE_TLS:-false}
-  MAIL_FROM: ${MAIL_FROM:-noreply@example.com}
-  MAIL_FROM_NAME: ${MAIL_FROM_NAME:-App}
-  MAIL_SUBJECT_PREFIX: "${MAIL_SUBJECT_PREFIX:-[App] }"
-  APP_NAME: ${APP_NAME:-App}
-  APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
 
 services:
   # Application service
@@ -63,7 +44,7 @@ services:
       - "8080:8080"  # API
       - "9090:9090"  # Metrics
     environment:
-      <<: [*data-env, *auth-env, *mail-env]
+      <<: [*data-env, *auth-env]
       JOBS_ENABLED: ${JOBS_ENABLED:-false}
       JOBS_RESULT_TTL: ${JOBS_RESULT_TTL:-86400}
       JOBS_MAX_RETRIES: ${JOBS_MAX_RETRIES:-3}
@@ -181,16 +162,16 @@ services:
       - "9091:9091"
       - "9190:9090"  # Metrics (remapped to avoid conflict with app:9090)
     environment:
-      # Same data/auth/mail env as app — see the x-*-env anchors up top.
-      <<: [*data-env, *auth-env, *mail-env]
+      # Same data/auth env as app — see the x-*-env anchors up top.
+      <<: [*data-env, *auth-env]
       JOBS_ENABLED: "true"
       WORKER_ID: ${WORKER_ID:-worker-1}
       # Production-shaped default: only the real job types the app enqueues.
       # The demo handlers `echo`/`slow`/`fail` live in src/worker_main.cpp for
       # manual testing — opt them in explicitly when you want them, e.g.:
-      #   WORKER_TYPES=default,account_email,echo,slow,fail
+      #   WORKER_TYPES=default,echo,slow,fail
       # (The API job tests drain Redis directly and do NOT rely on this list.)
-      WORKER_TYPES: ${WORKER_TYPES:-default,account_email}
+      WORKER_TYPES: ${WORKER_TYPES:-default}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
       WORKER_HEALTH_PORT: ${WORKER_HEALTH_PORT:-9091}
       WORKER_BRPOP_TIMEOUT: ${WORKER_BRPOP_TIMEOUT:-5}
@@ -473,27 +454,6 @@ services:
     restart: unless-stopped
     profiles:
       - with-monitoring
-
-  # Mailpit — local SMTP catcher for dev. Inbox UI on :8025, SMTP on :1025.
-  # No TLS, no auth — point MAIL_SMTP_HOST=mailpit / MAIL_SMTP_PORT=1025
-  # / MAIL_ENABLED=true at it. Email never leaves the docker network.
-  # DELIBERATELY profile-less (starts with plain `make up`): the account
-  # flows (confirm/reset/invite) are part of the core dev loop. If host
-  # port 1025/8025 clashes with a local mail agent, add a profile here.
-  mailpit:
-    image: axllent/mailpit:v1.30
-    container_name: mi_fitness_api_mailpit
-    ports:
-      - "1025:1025"   # SMTP
-      - "8025:8025"   # Web UI
-    networks:
-      - app-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8025/api/v1/info"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
 
   # Jaeger for distributed tracing (optional)
   jaeger:

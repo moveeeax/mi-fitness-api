@@ -210,17 +210,6 @@ components:
       properties:
         data: { $ref: '#/components/schemas/User' }
 
-    # POST /api/admin/invite. Mirrors AdminController::inviteUser —
-    # Response::created({{"data", user}, {"message", "Invitation sent"}}).
-    InviteResponse:
-      type: object
-      required: [data]
-      properties:
-        data:    { $ref: '#/components/schemas/User' }
-        message: { type: string }
-
-    # GET /api/admin/roles. Mirrors AdminController::listRoles —
-    # Response::list({{"data", [...roles]}}).
     RolesResponse:
       type: object
       required: [data]
@@ -241,15 +230,6 @@ components:
     MessageResponse:
       type: object
       properties:
-        message: { type: string }
-
-    # POST /api/v1/auth/register. Mirrors AuthController::registerUser —
-    # Response::created({{"user", user}, {"message", ...}}).
-    RegisterResponse:
-      type: object
-      required: [user, message]
-      properties:
-        user:    { $ref: '#/components/schemas/User' }
         message: { type: string }
 
 paths:
@@ -404,35 +384,6 @@ paths:
         '503': { description: One or more components unhealthy }
 
   # ── Auth ───────────────────────────────────────────────────────────────────
-  /api/v1/auth/register:
-    post:
-      summary: Register a new user
-      tags: [auth]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email, password]
-              properties:
-                email:      { type: string, format: email }
-                password:   { type: string, minLength: 8, maxLength: 128 }
-                first_name: { type: string }
-                last_name:  { type: string }
-      responses:
-        '201':
-          description: User created — confirmation email queued
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/RegisterResponse' }
-        '400': { description: Validation failed }
-        '409': { description: Email already registered }
-        '422':
-          description: Idempotency-Key conflict — same key, different body (idempotency middleware)
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
   /api/v1/auth/login:
     post:
       summary: Log in
@@ -509,119 +460,6 @@ paths:
         '401': { description: Not authenticated }
 
   # ── Account self-service ───────────────────────────────────────────────────
-  /api/v1/account/confirm-resend:
-    post:
-      summary: Resend the email-confirmation link to the current user
-      tags: [account]
-      security: [{ BearerAuth: [] }]
-      responses:
-        '200': { description: Confirmation email queued }
-        '401': { description: Not authenticated }
-  /api/v1/account/confirm/{token}:
-    post:
-      summary: Confirm an account from an email link
-      tags: [account]
-      parameters:
-        - name: token
-          in: path
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: Account confirmed }
-        '400': { description: Invalid or expired token }
-        '404': { description: User not found }
-  /api/v1/account/reset-password-request:
-    post:
-      summary: Start a password reset (email-based)
-      tags: [account]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email]
-              properties:
-                email: { type: string, format: email }
-      responses:
-        '200': { description: "If the email is registered, a reset link is on its way" }
-  /api/v1/account/reset-password/{token}:
-    post:
-      summary: Apply a password reset using an email-link token
-      tags: [account]
-      parameters:
-        - name: token
-          in: path
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [new_password]
-              properties:
-                new_password: { type: string, minLength: 8, maxLength: 128 }
-      responses:
-        '200': { description: Password updated }
-        '400':
-          description: Invalid or expired token
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-  /api/v1/account/change-email-request:
-    post:
-      summary: Start an email-change flow (verifies password, mails a link to new address)
-      tags: [account]
-      security: [{ BearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [new_email, password]
-              properties:
-                new_email: { type: string, format: email }
-                password:  { type: string }
-      responses:
-        '200': { description: Confirmation email sent to the new address }
-        '401': { description: Wrong password or not authenticated }
-  /api/v1/account/change-email/{token}:
-    post:
-      summary: Apply a pending email change from token
-      tags: [account]
-      parameters:
-        - name: token
-          in: path
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: Email updated }
-        '400': { description: Invalid or expired token }
-        '409': { description: Email already in use }
-  /api/v1/account/join-from-invite/{token}:
-    post:
-      summary: Set password and confirm account from an invite token
-      tags: [account]
-      parameters:
-        - name: token
-          in: path
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [new_password]
-              properties:
-                new_password: { type: string, minLength: 8, maxLength: 128 }
-      responses:
-        '200': { description: Account ready — the invitee can now sign in }
-        '400': { description: Invalid or expired invitation token }
   /api/v1/account/change-password:
     post:
       summary: Change password while logged in (verifies old password)
@@ -722,31 +560,6 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/UserDetailResponse' }
         '400': { description: Validation failed }
-        '403': { description: Not an admin }
-        '409': { description: Email already registered }
-  /api/v1/admin/invite:
-    post:
-      summary: Invite a user via email (admin)
-      tags: [admin]
-      security: [{ BearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email]
-              properties:
-                email:      { type: string, format: email }
-                first_name: { type: string }
-                last_name:  { type: string }
-                role_id:    { type: integer }
-      responses:
-        '201':
-          description: Invited
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/InviteResponse' }
         '403': { description: Not an admin }
         '409': { description: Email already registered }
   /api/v1/admin/users/{id}:

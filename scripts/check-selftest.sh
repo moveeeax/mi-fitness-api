@@ -288,7 +288,7 @@ with open(path, "a", encoding="utf-8") as fh:
              "TEST(%s, SelftestPlantedCollision) {}\n" % suite)
 PY
 }
-break_bucket_dup_integration() { _break_bucket_dup "$1" AuthTest tests/integration/test_account_flow.cpp; }
+break_bucket_dup_integration() { _break_bucket_dup "$1" AuthTest tests/integration/test_auth_flow.cpp; }
 break_bucket_dup_api() { _break_bucket_dup "$1" Base64Test tests/api/test_api_endpoints.cpp; }
 
 # 7. A phantom release heading on top of the CHANGELOG: the baked
@@ -484,9 +484,9 @@ import re, sys
 path = sys.argv[1]
 with open(path, encoding="utf-8") as fh:
     text = fh.read()
-text, n = re.subn(r"(?m)^\|\s*`MAIL_TIMEOUT_SEC`.*\n", "", text)
+text, n = re.subn(r"(?m)^\|\s*`MI_FITNESS_HTTP_TIMEOUT`.*\n", "", text)
 if n != 1:
-    sys.exit("break_config_doc_row_removed: removed %d MAIL_TIMEOUT_SEC row(s) in %s "
+    sys.exit("break_config_doc_row_removed: removed %d MI_FITNESS_HTTP_TIMEOUT row(s) in %s "
              "— expected exactly 1" % (n, path))
 with open(path, "w", encoding="utf-8") as fh:
     fh.write(text)
@@ -618,7 +618,7 @@ run_case config-unregistered-key check-config-sync.sh break_config_unregistered_
 
 run_case config-stale-doc-row check-config-sync.sh break_config_doc_row_removed \
     "$CONFIG_SYNC_PATHS" \
-    "env 'MAIL_TIMEOUT_SEC' is read in src/ but not documented in docs/CONFIG.md"
+    "env 'MI_FITNESS_HTTP_TIMEOUT' is read in src/ but not documented in docs/CONFIG.md"
 
 # --- verdict -----------------------------------------------------------------
 

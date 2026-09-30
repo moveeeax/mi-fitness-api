@@ -1,7 +1,7 @@
 /**
  * @file BuiltinHandlers.cpp
  * @brief Body for src/jobs/BuiltinHandlers.hpp — compiled once into app_core.
- *        The only jobs TU that sees the email/webhooks handlers it wires up.
+ *        The only jobs TU that sees the webhooks handlers it wires up.
  */
 
 #include "jobs/BuiltinHandlers.hpp"
@@ -13,8 +13,6 @@
 
 #include <nlohmann/json.hpp>
 
-#include "email/AccountEmailWorker.hpp"
-#include "email/GenericEmail.hpp"
 #include "jobs/Dispatcher.hpp"
 #include "jobs/XiaomiSyncHandler.hpp"
 #include "webhooks/Webhooks.hpp"
@@ -23,15 +21,6 @@ namespace Jobs {
 
 void register_builtin_handlers() {
     auto& d = Dispatcher::get();
-    // Account emails (confirm / reset / change-email / invite). Throws on
-    // render/SMTP failure → retried, then DLQ'd.
-    d.register_handler(Email::AccountEmails::kJobType,
-                       [](const json& payload) { return Email::AccountEmails::process_job(payload); });
-    // Generic ad-hoc email for any app code (not tied to account flows). Same
-    // throw-on-failure → retry/DLQ contract.
-    d.register_handler(Email::SendEmail::kJobType,
-                       [](const json& payload) { return Email::SendEmail::process_job(payload); });
-    // Outbound webhooks: signed POST to a subscriber URL, same retry/DLQ contract.
     d.register_handler(Webhooks::kJobType, [](const json& payload) { return Webhooks::process_job(payload); });
     // Demo handlers used by examples/tests.
     // Полный синк облака Mi Fitness: журнал ведёт сам обработчик.

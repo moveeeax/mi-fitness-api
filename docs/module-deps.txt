@@ -15,8 +15,6 @@
 #     may include it. Everything else
 #     that needs a module switch or the shutdown flag includes the tiny
 #     core/Modules.hpp instead.
-#   * webhooks must not include email (that edge closed the
-#     email <-> jobs <-> webhooks cycle; the shared curl bootstrap lives in
 #     utils/CurlInit.hpp).
 #
 # Adding a genuinely new dependency? Add the edge here in the same PR and
@@ -24,9 +22,7 @@
 
 api -> cache
 api -> core
-api -> database
 api -> domain
-api -> email
 api -> jobs
 api -> observability
 api -> repositories
@@ -37,7 +33,6 @@ api -> sync
 cache -> utils
 core -> cache
 core -> database
-core -> email
 core -> jobs
 core -> observability
 core -> root
@@ -45,14 +40,7 @@ core -> security
 core -> tasks
 core -> utils
 database -> utils
-email -> domain
-email -> jobs
-email -> repositories
-email -> security
-email -> utils
 jobs -> cache
-jobs -> database
-jobs -> email
 jobs -> observability
 jobs -> utils
 jobs -> webhooks
@@ -69,7 +57,6 @@ root -> cache
 root -> core
 root -> database
 root -> domain
-root -> email
 root -> jobs
 root -> observability
 root -> repositories

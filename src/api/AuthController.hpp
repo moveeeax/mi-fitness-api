@@ -1,16 +1,12 @@
 /**
  * @file AuthController.hpp
- * @brief Auth endpoints: register, login, logout, refresh, me.
+ * @brief Auth endpoints: login, logout, refresh, me.
  *
- * flask-base parity: app/account/views.py login() / register() / logout().
  * Differences from flask-base:
  *   - Returns JSON, not HTML. The frontend handles redirects.
  *   - Cookie-based session (HttpOnly + SameSite=Lax) instead of Flask-Login.
  *   - Refresh-token rotation: every /refresh returns a brand-new refresh JWT
  *     and invalidates the previous JTI in Redis. Logout deletes the JTI.
- *   - Email-confirmation token generation lives here so /register can fire
- *     it; the actual SMTP send is wired in stage 2 (AccountController +
- *     Mailer). Until then we log the link at INFO level.
  *
  * Declarations only — the handler bodies live in AuthController.cpp
  * (compiled once into app_core; ADR 0003 as amended 2026-08-22). The route
@@ -40,7 +36,6 @@ using json = nlohmann::json;
 class AuthController : public HttpController<AuthController> {
 public:
     METHOD_LIST_BEGIN
-    ADD_METHOD_TO(AuthController::registerUser, "/api/v1/auth/register", Post);
     ADD_METHOD_TO(AuthController::login, "/api/v1/auth/login", Post);
     ADD_METHOD_TO(AuthController::logout, "/api/v1/auth/logout", Post);
     ADD_METHOD_TO(AuthController::refresh, "/api/v1/auth/refresh", Post);
@@ -48,14 +43,6 @@ public:
     METHOD_LIST_END
 
     // ---------------------------------------------------------------------
-    // POST /api/auth/register
-    //
-    // Body: { email, password, first_name?, last_name? }
-    // Behaviour: creates an unconfirmed user, generates a confirm-email
-    // token, and (stage 2) emails it. NOT auto-login — flask-base parity:
-    // user has to click the link, then log in.
-    // ---------------------------------------------------------------------
-    void registerUser(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback);
 
     // ---------------------------------------------------------------------
     // POST /api/auth/login
