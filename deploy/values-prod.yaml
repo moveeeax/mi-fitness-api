@@ -4,7 +4,7 @@
 
 image:
   repository: ghcr.io/moveeeax/mi-fitness-api
-  tag: "1.9.1"
+  tag: "1.9.2"
 
 replicaCount: 1
 

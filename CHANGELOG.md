@@ -6,6 +6,11 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.9.2] — 2026-09-30
+
+### Fixed
+- phase-3 review fixes: the csv formula guard survives leading whitespace and leaves numbers alone, abnormal heart beat events are readable and exported, day bounds no longer depend on the session time zone, the summary window follows the region zone, the probe 409/503 spec entries are valid yaml, export caps the range at 366 days
+
 ## [1.9.1] — 2026-09-30
 
 ### Added
