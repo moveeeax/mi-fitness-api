@@ -11,6 +11,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -251,6 +252,16 @@ bool is_authentication_code(long long code) {
     return code == 401 || code == 403 || code == -6 || code == -10001;
 }
 
+/// Попыток на один запрос данных: как у Python-моста.
+constexpr int kRequestRetries = 3;
+
+/// Внутренняя метка «отказ временный, повтор осмыслен». Наружу не выходит:
+/// после последней попытки превращается в MiFitnessProtocolError.
+class MiFitnessRetryableError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
 }  // namespace
 
 nlohmann::json CloudClient::post_signed(const std::string& base_url,
@@ -259,7 +270,28 @@ nlohmann::json CloudClient::post_signed(const std::string& base_url,
     if (ssecurity_b64_.empty() || cookies_.empty()) {
         throw MiFitnessAuthError("data request before a successful login");
     }
+    // Облако отвечает на глубокие диапазоны нестабильно: 502/504 шлюза и
+    // таймауты curl приходят вперемешку с успехами. Такие отказы повторяются
+    // до kRequestRetries попыток с экспоненциальным бэкоффом (потолок 4
+    // секунды), как в Python-мосте. Отказ авторизации и ошибки конверта не
+    // повторяются: повтор их не изменит.
+    for (int attempt = 0;; ++attempt) {
+        const bool last_attempt = attempt == kRequestRetries - 1;
+        try {
+            return post_signed_once(base_url, api_path, payload);
+        } catch (const MiFitnessRetryableError& e) {
+            if (last_attempt) {
+                throw MiFitnessProtocolError(e.what());
+            }
+        }
+        const auto backoff = std::min<long long>(4000, static_cast<long long>(retry_backoff_base_ms_) << attempt);
+        std::this_thread::sleep_for(std::chrono::milliseconds(backoff));
+    }
+}
 
+nlohmann::json CloudClient::post_signed_once(const std::string& base_url,
+                                             std::string_view api_path,
+                                             const nlohmann::json& payload) {
     const std::string data = payload.dump();
     const auto minutes =
         std::chrono::duration_cast<std::chrono::minutes>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -283,9 +315,19 @@ nlohmann::json CloudClient::post_signed(const std::string& base_url,
     request.headers.emplace_back("Cookie", cookies_);
     request.headers.emplace_back("Content-Type", "application/x-www-form-urlencoded");
 
-    const HttpResponse response = transport_.send(request);
+    HttpResponse response;
+    try {
+        response = transport_.send(request);
+    } catch (const MiFitnessProtocolError& e) {
+        // Транспортный уровень: таймаут или сетевая ошибка curl. Ответ не
+        // дошёл, повтор осмыслен.
+        throw MiFitnessRetryableError(e.what());
+    }
     if (response.status == 401 || response.status == 403) {
         throw MiFitnessAuthError("Xiaomi data request was refused: HTTP " + std::to_string(response.status));
+    }
+    if (response.status == 429 || response.status >= 500) {
+        throw MiFitnessRetryableError("Xiaomi data request failed: HTTP " + std::to_string(response.status));
     }
     if (response.status != 200) {
         throw MiFitnessProtocolError("Xiaomi data request failed: HTTP " + std::to_string(response.status));
