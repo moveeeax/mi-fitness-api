@@ -28,6 +28,12 @@ protected:
 
     std::string config_file_name() const override { return "sync_api_test_config.json"; }
 
+    void config_overrides(nlohmann::json& cfg) override {
+        // Очередь заданий по умолчанию выключена в минимальном конфиге тестов.
+        cfg["jobs"]["enabled"] = true;
+        cfg["jobs"]["result_ttl"] = 3600;
+    }
+
     void SetUp() override {
         TestHelpers::CoreBackedTest::SetUp();
         if (::testing::Test::IsSkipped())
