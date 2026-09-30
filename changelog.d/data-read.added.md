@@ -1,0 +1,1 @@
+read routes: eight GET endpoints under /api/v1/data (activity, sleep, heart rate, stress, SpO2, body, workouts, per-day summary) with a required date range, limit/offset pagination and full totals; time-range indexes for the sample tables
