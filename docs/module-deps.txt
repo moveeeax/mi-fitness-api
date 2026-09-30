@@ -34,6 +34,7 @@ api -> repositories
 api -> security
 api -> utils
 api -> xiaomi
+api -> sync
 billing -> database
 billing -> domain
 billing -> repositories
@@ -63,6 +64,9 @@ jobs -> email
 jobs -> observability
 jobs -> utils
 jobs -> webhooks
+jobs -> xiaomi
+jobs -> repositories
+jobs -> sync
 observability -> utils
 repositories -> database
 repositories -> domain
