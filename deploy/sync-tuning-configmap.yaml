@@ -12,3 +12,7 @@ metadata:
 data:
   MI_FITNESS_SYNC_TYPE_TIMEOUT: "1800"
   MI_FITNESS_HTTP_TIMEOUT: "120"
+  # Плановый синк: каждые 4 часа окно последних 2 суток. Таймер живёт в
+  # API-поде, поэтому configmap подключён и к API, и к воркеру.
+  MI_FITNESS_SYNC_SCHEDULE_HOURS: "4"
+  MI_FITNESS_SYNC_WINDOW_DAYS: "2"

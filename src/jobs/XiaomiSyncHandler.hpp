@@ -9,19 +9,65 @@
 
 #pragma once
 
+#include <chrono>
+#include <cstdio>
 #include <string>
 #include <vector>
 
 #include <nlohmann/json.hpp>
 
+#include "jobs/Jobs.hpp"
 #include "repositories/CredentialsRepository.hpp"
 #include "repositories/SyncRunRepository.hpp"
 #include "sync/SyncService.hpp"
+#include "utils/Config.hpp"
 #include "xiaomi/Service.hpp"
 
 namespace Jobs::XiaomiSync {
 
 inline constexpr const char* kJobType = "xiaomi_sync";
+
+/**
+ * @brief Поставить в очередь синк последних @p window_days суток.
+ *
+ * Сутки считаются в поясе региона (cn это UTC+8, прочие UTC — то же
+ * правило, что у границ диапазона в Xiaomi::range_to_timestamps): дата
+ * «сегодня» по UTC около полуночи региона отстаёт на день, и окно
+ * промахивалось бы мимо свежих данных. Возвращает run_id созданного
+ * запуска; исключения базы и очереди отдаёт вызывающему.
+ */
+inline long enqueue_recent(int window_days, long long now_epoch) {
+    if (window_days < 1) {
+        window_days = 1;
+    }
+    std::string region;
+    if (Config::is_initialized()) {
+        region = Config::get().get<std::string>("xiaomi.region", "MI_FITNESS_REGION", "");
+    }
+    const long long offset = (region.empty() || region == "cn") ? 8 * 3600 : 0;
+
+    const auto day = [](long long epoch) {
+        const std::chrono::sys_days d{
+            std::chrono::floor<std::chrono::days>(std::chrono::sys_seconds{std::chrono::seconds{epoch}})};
+        const std::chrono::year_month_day ymd{d};
+        char out[16];
+        std::snprintf(out,
+                      sizeof(out),
+                      "%04d-%02u-%02u",
+                      static_cast<int>(ymd.year()),
+                      static_cast<unsigned>(ymd.month()),
+                      static_cast<unsigned>(ymd.day()));
+        return std::string(out);
+    };
+    const std::string to = day(now_epoch + offset);
+    const std::string from = day(now_epoch + offset - 86400LL * (window_days - 1));
+
+    Repositories::SyncRunRepository runs;
+    const long run_id = runs.create(from, to, Sync::kAllDataTypes);
+    Jobs::get().submit(
+        kJobType, nlohmann::json{{"run_id", run_id}, {"from", from}, {"to", to}, {"data_types", Sync::kAllDataTypes}});
+    return run_id;
+}
 
 inline nlohmann::json process_job(const nlohmann::json& payload) {
     const long run_id = payload.at("run_id").get<long>();

@@ -28,6 +28,7 @@
 #include "database/Database.hpp"
 #include "database/Migrations.hpp"
 #include "jobs/Jobs.hpp"
+#include "jobs/XiaomiSyncHandler.hpp"
 #include "observability/Observability.hpp"
 #include "security/Auth.hpp"
 #include "security/Idempotency.hpp"
@@ -535,6 +536,30 @@ void Application::init_jobs_(Config::AppConfig& cfg) {
     Jobs::get().set_visibility_timeout(visibility);
     register_dlq_metric_(cfg);
     register_queue_depth_metric_(cfg);
+    register_xiaomi_sync_schedule_(cfg);
+}
+
+void Application::register_xiaomi_sync_schedule_(Config::AppConfig& cfg) {
+    // Плановый синк живёт в API-поде: Tasks поднят только в серверном режиме,
+    // сам синк исполняет воркер через очередь. runEvery дрогона стреляет
+    // впервые через интервал, не при старте.
+    if (!Tasks::is_initialized() || !Database::is_initialized() || !Jobs::is_initialized())
+        return;
+    const int hours = cfg.get<int>("xiaomi.sync_schedule_hours", "MI_FITNESS_SYNC_SCHEDULE_HOURS", 0);
+    if (hours <= 0)
+        return;  // opt-in: без ручки расписания нет
+    const int window = cfg.get<int>("xiaomi.sync_window_days", "MI_FITNESS_SYNC_WINDOW_DAYS", 2);
+    spdlog::info("Xiaomi sync schedule enabled: every {}h, window {} day(s)", hours, window);
+    Tasks::schedule_recurring("xiaomi_sync_schedule", std::chrono::hours(hours), [window] {
+        if (!Database::is_initialized() || !Jobs::is_initialized())
+            return;
+        try {
+            Jobs::XiaomiSync::enqueue_recent(window, static_cast<long long>(::time(nullptr)));
+        } catch (const std::exception& e) {
+            // База или очередь легли: тик пропущен, следующий повторит.
+            spdlog::warn("xiaomi sync schedule tick failed: {}", e.what());
+        }
+    });
 }
 
 void Application::register_health_check(std::string name, HealthFn probe, bool critical) {
