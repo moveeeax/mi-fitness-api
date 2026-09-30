@@ -89,13 +89,23 @@ public:
     void set_max_pages(int max_pages) { max_pages_ = max_pages; }
     int max_pages() const { return max_pages_; }
 
+    /// База бэкоффа ретраев в миллисекундах. Ноль в тестах: без него каждый
+    /// прогон с ретраями спит по секундам.
+    void set_retry_backoff_base_ms(int base_ms) { retry_backoff_base_ms_ = base_ms; }
+
 private:
+    /// Одна попытка подписанного POST без ретраев.
+    nlohmann::json post_signed_once(const std::string& base_url,
+                                    std::string_view api_path,
+                                    const nlohmann::json& payload);
+
     HttpTransport& transport_;
     Credentials credentials_;
     std::function<void(const Credentials&)> on_rotate_;
     std::string ssecurity_b64_;
     std::string cookies_;
     int max_pages_ = 200;
+    int retry_backoff_base_ms_ = 500;
 };
 
 }  // namespace Xiaomi

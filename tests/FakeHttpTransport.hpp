@@ -22,7 +22,7 @@ public:
     /// ssecurity, который отдаёт reply_login: "secret-material!" в base64.
     static constexpr const char* kSsecurityB64 = "c2VjcmV0LW1hdGVyaWFsIQ==";
 
-    void reply(Xiaomi::HttpResponse response) { queued_.push_back({std::move(response), false, {}}); }
+    void reply(Xiaomi::HttpResponse response) { queued_.push_back({std::move(response), false, {}, {}}); }
 
     /// Успешный двухступенчатый логин: ответ с полями и редирект с кукой.
     void reply_login(const std::string& rotated_token = "NEWTOKEN") {
@@ -34,12 +34,20 @@ public:
         reply({200, "", {{"set-cookie", "serviceToken=abc; Path=/"}}});
     }
 
+    /// Падение транспорта: send бросает MiFitnessProtocolError с этим текстом,
+    /// как CurlTransport на таймауте или сетевой ошибке curl.
+    void reply_transport_error(std::string message) {
+        Queued item;
+        item.throw_message = std::move(message);
+        queued_.push_back(std::move(item));
+    }
+
     /// Зашифрованный ответ данных. Шифруется в момент запроса: signed_nonce
     /// зависит от _nonce, который клиент кладёт в тело, и до прихода запроса
     /// подделке неизвестен. Используются те же функции крипты, что и в клиенте,
     /// поэтому удачная расшифровка заодно перекрёстно их проверяет.
     void reply_encrypted(std::string envelope_json) {
-        queued_.push_back({{200, "", {}}, true, std::move(envelope_json)});
+        queued_.push_back({{200, "", {}}, true, std::move(envelope_json), {}});
     }
 
     Xiaomi::HttpResponse send(const Xiaomi::HttpRequest& request) override {
@@ -50,6 +58,9 @@ public:
         }
         Queued item = queued_.front();
         queued_.erase(queued_.begin());
+        if (!item.throw_message.empty()) {
+            throw Xiaomi::MiFitnessProtocolError("Xiaomi request failed: " + item.throw_message);
+        }
         if (item.encrypt) {
             const std::string nonce = Xiaomi::Crypto::b64_decode(form_value(request.body, "_nonce"));
             const std::string signed_nonce = Xiaomi::Crypto::signed_nonce(kSsecurityB64, nonce);
@@ -99,6 +110,7 @@ private:
         Xiaomi::HttpResponse response;
         bool encrypt = false;
         std::string plaintext;
+        std::string throw_message;
     };
 
     std::vector<Xiaomi::HttpRequest> requests_;

@@ -93,7 +93,8 @@ TEST_F(SyncServiceTest, RepeatRunGivesAddedThenUpdated) {
 TEST_F(SyncServiceTest, FailedTypeDoesNotStopTheRest) {
     Repositories::SyncRunRepository runs;
     transport.reply_login();
-    transport.reply({500, "boom", {}});        // sleep: ошибка протокола
+    // 400 не ретраится: 5xx клиент теперь повторяет и съел бы ответы соседа.
+    transport.reply({400, "boom", {}});        // sleep: ошибка протокола
     transport.reply_encrypted(weight_page());  // body_measurements работает
 
     const long id = runs.create("2026-09-22", "2026-09-22", {"sleep", "body_measurements"});
