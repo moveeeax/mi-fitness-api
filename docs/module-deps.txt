@@ -45,7 +45,6 @@ core -> cache
 core -> database
 core -> email
 core -> jobs
-core -> messaging
 core -> observability
 core -> root
 core -> security

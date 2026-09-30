@@ -60,10 +60,3 @@ scrape_configs:
       - targets: ['redis-exporter:9121']
         labels:
           service: redis
-
-  # Kafka — JMX exporter sidecar (with-kafka + with-monitoring).
-  - job_name: kafka
-    static_configs:
-      - targets: ['kafka-exporter:9308']
-        labels:
-          service: kafka

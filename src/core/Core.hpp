@@ -6,7 +6,7 @@
  * Declarations only — the bodies live in Core.cpp (compiled once into
  * app_core; ADR 0003 as amended 2026-08-22): including this header no
  * longer pulls the 13 subsystem headers (database/pqxx, cache/redis++,
- * jobs, Kafka, PayPal, mailer, storage, OTel/prometheus, ...) into the
+ * jobs, PayPal, mailer, storage, OTel/prometheus, ...) into the
  * including TU — those includes moved to Core.cpp. Only the binary entry
  * points and api/HealthController.hpp may include this header
  * (check-module-deps rule 2); everyone else consults the tiny
@@ -49,7 +49,7 @@ void check_password_safety(const std::string& url);
  */
 enum class InitMode {
     Full,        // API server: all subsystems
-    Worker,      // Worker process: skip Tasks, skip Messaging
+    Worker,      // Worker process: skip Tasks
     MigrateOnly  // Run migrations only: Config + Observability + Database + Migrations
 };
 
@@ -104,10 +104,6 @@ private:
     static std::vector<std::pair<std::string, int>> read_sentinels_(Config::AppConfig& cfg);
 
     static void init_cache_(Config::AppConfig& cfg);
-
-    static std::vector<std::string> read_kafka_topics_(Config::AppConfig& cfg);
-
-    static void init_messaging_(Config::AppConfig& cfg);
 
     // Throws if auth.mode=jwt and no secret is set — refuse to silently start
     // a service that would accept unauthenticated traffic.

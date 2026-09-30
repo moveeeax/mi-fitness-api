@@ -81,7 +81,7 @@ pdb:
 # namespace names (ingress-nginx, monitoring, db) that vary per cluster.
 # Before flipping to true in production:
 #   1. Confirm your ingress-controller namespace and update fromSelectors.
-#   2. Confirm where Postgres/Redis/Kafka live; list egress targets by
+#   2. Confirm where Postgres/Redis live; list egress targets by
 #      podSelector or namespaceSelector (not CIDR — it ties the manifest
 #      to a single environment).
 #   3. Test in a staging namespace first — a wrong NetworkPolicy silently
@@ -100,7 +100,7 @@ networkPolicy:
             kubernetes.io/metadata.name: monitoring
   egress:
     extra:
-      # Allow egress to Postgres, Redis, Kafka by namespace/podSelector as appropriate.
+      # Allow egress to Postgres, Redis by namespace/podSelector as appropriate.
       - to:
           - namespaceSelector:
               matchLabels:
@@ -214,20 +214,6 @@ externalRedis:
   # isn't shared with another app. MUST be set (and match the other release's
   # value — api and worker share the queue) whenever it is shared.
   db: 0
-
-# ---------------------------------------------------------------
-# External Kafka (optional messaging)
-# Env vars set: MESSAGING_ENABLED, KAFKA_BROKERS,
-#               KAFKA_PRODUCER_ENABLED, KAFKA_PRODUCER_ID,
-#               KAFKA_CONSUMER_ENABLED, KAFKA_GROUP_ID
-# ---------------------------------------------------------------
-externalKafka:
-  enabled: false
-  brokers: "kafka:9092"
-  producerEnabled: false
-  producerId: mi_fitness_api_producer
-  consumerEnabled: false
-  consumerGroupId: cpp_consumer_group
 
 # ---------------------------------------------------------------
 # Jobs configuration (disabled on the API by default — use mi-fitness-api-worker chart)

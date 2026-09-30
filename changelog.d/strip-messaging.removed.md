@@ -1,0 +1,1 @@
+the messaging (Kafka) module is gone: src/messaging, its Core wiring, config keys, helm env block, compose services and dashboards; librdkafka deliberately stays in vcpkg.json — dropping it would rebuild the whole dependency world

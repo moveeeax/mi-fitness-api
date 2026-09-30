@@ -93,23 +93,6 @@
     "templates_dir": "${MAIL_TEMPLATES_DIR:-templates/email}",
     "timeout_sec": 30
   },
-  "messaging": {
-    "enabled": false,
-    "kafka": {
-      "brokers": "localhost:9092",
-      "producer": {
-        "enabled": false,
-        "client_id": "mi_fitness_api_producer"
-      },
-      "consumer": {
-        "enabled": false,
-        "group_id": "cpp_consumer_group",
-        "topics": [
-          "example_topic"
-        ]
-      }
-    }
-  },
   "api": {
     "public_paths": "/,/healthz,/ready,/health,/metrics,/api/v1/docs,/api/v1/openapi.yaml,/api/v1/auth/login,/api/v1/auth/register,/api/v1/auth/refresh,/api/v1/account/confirm/*,/api/v1/account/reset-password-request,/api/v1/account/reset-password/*,/api/v1/account/change-email/*",
     "public_paths_extra": "${API_PUBLIC_PATHS_EXTRA:-}"

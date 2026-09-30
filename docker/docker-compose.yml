@@ -64,9 +64,6 @@ services:
       - "9090:9090"  # Metrics
     environment:
       <<: [*data-env, *auth-env, *mail-env]
-      MESSAGING_ENABLED: ${MESSAGING_ENABLED:-false}
-      KAFKA_PRODUCER_ENABLED: ${KAFKA_PRODUCER_ENABLED:-false}
-      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
       JOBS_ENABLED: ${JOBS_ENABLED:-false}
       JOBS_RESULT_TTL: ${JOBS_RESULT_TTL:-86400}
       JOBS_MAX_RETRIES: ${JOBS_MAX_RETRIES:-3}
@@ -384,69 +381,6 @@ services:
       timeout: 3s
       retries: 5
 
-  # Kafka + Zookeeper (optional)
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: mi_fitness_api_zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-    volumes:
-      - zookeeper_data:/var/lib/zookeeper/data
-      - zookeeper_log:/var/lib/zookeeper/log
-    networks:
-      - app-network
-    restart: unless-stopped
-    healthcheck:
-      # cub (Confluent Utility Belt) ships in cp-* images; nc does not.
-      test: ["CMD", "cub", "zk-ready", "localhost:2181", "5"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-    # Cap memory so a dev laptop doesn't OOM when the kafka profile is up.
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-    profiles:
-      - with-kafka
-
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: mi_fitness_api_kafka
-    depends_on:
-      zookeeper:
-        # List-form depends_on only waits for container START; Kafka racing
-        # an unready Zookeeper is a classic CI flake.
-        condition: service_healthy
-    ports:
-      - "9092:9092"
-      - "9093:9093"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      # Bound the JVM so the kafka profile fits on a dev laptop.
-      KAFKA_HEAP_OPTS: "-Xmx512m -Xms256m"
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-    volumes:
-      - kafka_data:/var/lib/kafka/data
-    networks:
-      - app-network
-    restart: unless-stopped
-    profiles:
-      - with-kafka
-    healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
   # Prometheus for metrics (optional)
   prometheus:
     image: prom/prometheus:v3.12.0
@@ -547,20 +481,6 @@ services:
     profiles:
       - with-monitoring
 
-  # Starts only with the kafka profile: multi-profile (with-kafka +
-  # with-monitoring) made it start under with-monitoring alone and
-  # crashloop against a Kafka that was never launched.
-  kafka-exporter:
-    image: danielqsj/kafka-exporter:v1.9.0
-    container_name: mi_fitness_api_kafka_exporter
-    command:
-      - '--kafka.server=kafka:9092'
-    networks:
-      - app-network
-    restart: unless-stopped
-    profiles:
-      - with-kafka
-
   # Mailpit — local SMTP catcher for dev. Inbox UI on :8025, SMTP on :1025.
   # No TLS, no auth — point MAIL_SMTP_HOST=mailpit / MAIL_SMTP_PORT=1025
   # / MAIL_ENABLED=true at it. Email never leaves the docker network.
@@ -605,8 +525,5 @@ volumes:
   postgres_data:
   postgres_replica_data:
   redis_data:
-  zookeeper_data:
-  zookeeper_log:
-  kafka_data:
   prometheus_data:
   grafana_data:

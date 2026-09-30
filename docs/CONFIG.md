@@ -173,12 +173,6 @@ For URL components: `REDIS_HOST`, `REDIS_PORT`.
 
 | Env | JSON key | Type | Default | Notes |
 |---|---|---|---|---|
-| `MESSAGING_ENABLED` | `messaging.enabled` | bool | `false` | Parent switch |
-| `KAFKA_BROKERS` | `messaging.kafka.brokers` | string | `localhost:9092` | |
-| `KAFKA_PRODUCER_ENABLED` | `messaging.kafka.producer.enabled` | bool | `false` | |
-| `KAFKA_PRODUCER_ID` | `messaging.kafka.producer.client_id` | string | `mi_fitness_api_producer` | |
-| `KAFKA_CONSUMER_ENABLED` | `messaging.kafka.consumer.enabled` | bool | `false` | |
-| `KAFKA_GROUP_ID` | `messaging.kafka.consumer.group_id` | string | `cpp_consumer_group` | |
 
 ## Jobs
 
