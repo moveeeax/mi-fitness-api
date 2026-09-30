@@ -6,6 +6,11 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.6] — 2026-09-30
+
+### Fixed
+- the helm strip cut too much: the deployment templates lost extraEnvFrom, securityContext, resources, volumeMounts and volumes; restored from v1.8.4 with only the removed env blocks cut
+
 ## [1.8.5] — 2026-09-30
 
 ### Removed
