@@ -6,6 +6,11 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.1] — 2026-09-30
+
+### Fixed
+- sync of deep date ranges no longer dies on the fixed 20-second request timeout: `MI_FITNESS_HTTP_TIMEOUT` (`xiaomi.http_timeout_seconds`) raises the per-request budget
+
 ## [1.8.0] — 2026-09-30
 
 ### Added
