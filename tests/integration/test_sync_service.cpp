@@ -18,6 +18,7 @@
 #include "repositories/SyncRunRepository.hpp"
 #include "sync/SyncService.hpp"
 #include "test_helpers.hpp"
+#include "xiaomi/Regions.hpp"
 
 namespace {
 
@@ -64,6 +65,16 @@ protected:
         return json{{"code", 0}, {"result", {{"data_list", json::array({record})}, {"has_more", false}}}}.dump();
     }
 
+    static std::string sleep_page(long long bed, long long wake) {
+        const json value{{"bedtime", bed}, {"wake_up_time", wake}};
+        const json record{{"time", wake},
+                          {"zone_offset", 28800},
+                          {"zone_name", "Asia/Shanghai"},
+                          {"sid", "band-1"},
+                          {"value", value.dump()}};
+        return json{{"code", 0}, {"result", {{"data_list", json::array({record})}, {"has_more", false}}}}.dump();
+    }
+
     static std::string empty_page() {
         return json{{"code", 0}, {"result", {{"data_list", json::array()}, {"has_more", false}}}}.dump();
     }
@@ -99,6 +110,126 @@ TEST_F(SyncServiceTest, ChunkBoundaryDayIsAggregatedAcrossChunks) {
         return r.empty() ? -1L : r[0][0].template as<long>();
     });
     EXPECT_EQ(steps, 7226);
+}
+
+// Находки финального обзора плана 2. Пять поведений ниже закрывают
+// Critical 1-2 и Important 3-5 отчёта ревьюера.
+
+// Critical 1: сутки на краю запрошенного диапазона заведомо частичные, их
+// нельзя upsert-ить: окно режется в поясе региона, и вечерняя минута
+// предыдущего дня попадает внутрь. Полный день в базе не должен затираться.
+TEST_F(SyncServiceTest, RangeEdgeDayOutsideRequestIsNotUpserted) {
+    Repositories::SyncRunRepository runs;
+    transport.reply_login();
+    transport.reply_encrypted(steps_page_at(1790568000, 28800, 7000));  // кусок 22..28
+    transport.reply_encrypted(empty_page());
+    transport.reply_encrypted(steps_page_at(1790613000, 25200, 226));  // кусок 29..30
+    transport.reply_encrypted(empty_page());
+    const long full = runs.create("2026-09-22", "2026-09-30", {"daily_activity"});
+    service().run(full, "2026-09-22", "2026-09-30", {"daily_activity"});
+
+    // Инкрементальный запуск со следующего дня: та же вечерняя минута 28-го
+    // входит в окно 29..30, но день 28-й вне запроса.
+    transport.reply_login();
+    transport.reply_encrypted(steps_page_at(1790613000, 25200, 226));
+    transport.reply_encrypted(empty_page());
+    const long tail = runs.create("2026-09-29", "2026-09-30", {"daily_activity"});
+    service().run(tail, "2026-09-29", "2026-09-30", {"daily_activity"});
+
+    const long steps = Database::get().execute_read([](auto& txn) {
+        auto r = txn.exec("SELECT steps FROM daily_activity WHERE date = '2026-09-28'");
+        return r.empty() ? -1L : r[0][0].template as<long>();
+    });
+    EXPECT_EQ(steps, 7226);
+}
+
+// Important 4: закрытый запуск не оживает от повторной доставки задания.
+TEST_F(SyncServiceTest, FinishedRunCannotBeRestarted) {
+    Repositories::SyncRunRepository runs;
+    transport.reply_login();
+    transport.reply_encrypted(steps_page(100));
+    transport.reply_encrypted(empty_page());
+    const long id = runs.create("2026-09-22", "2026-09-22", {"daily_activity"});
+    service().run(id, "2026-09-22", "2026-09-22", {"daily_activity"});
+
+    // Очередь подделки пуста: повторный заход обязан закончиться до сети.
+    const auto second = service().run(id, "2026-09-22", "2026-09-22", {"daily_activity"});
+
+    EXPECT_TRUE(second.contains("skipped_reason"));
+    const auto row = runs.get(id);
+    ASSERT_TRUE(row.has_value());
+    EXPECT_EQ((*row)["status"], "succeeded");
+}
+
+// Critical 2: зависшая строка running (воркер убит посреди синка) не должна
+// глушить все будущие запуски. Протухшая строка помечается interrupted.
+TEST_F(SyncServiceTest, StaleRunningRunIsInterruptedAndReleasesTheMutex) {
+    Repositories::SyncRunRepository runs;
+    Database::get().execute_write([](auto& txn) {
+        txn.exec(
+            "INSERT INTO sync_runs (status, started_at, requested_start, requested_end, data_types) "
+            "VALUES ('running', now() - interval '6 hours', '2026-09-01', '2026-09-02', '{daily_activity}')");
+        return true;
+    });
+
+    transport.reply_login();
+    transport.reply_encrypted(steps_page(100));
+    transport.reply_encrypted(empty_page());
+    const long id = runs.create("2026-09-22", "2026-09-22", {"daily_activity"});
+    const auto result = service().run(id, "2026-09-22", "2026-09-22", {"daily_activity"});
+
+    EXPECT_FALSE(result.contains("skipped_reason"));
+    const auto row = runs.get(id);
+    ASSERT_TRUE(row.has_value());
+    EXPECT_EQ((*row)["status"], "succeeded");
+    const std::string stale = Database::get().execute_read([](auto& txn) {
+        auto r = txn.exec("SELECT status FROM sync_runs WHERE requested_start = '2026-09-01'");
+        return r[0][0].template as<std::string>();
+    });
+    EXPECT_EQ(stale, "interrupted");
+}
+
+// Important 3: окно суточных отчётов сна берёт день запаса с обеих сторон,
+// как эталон: пояс отчёта может не совпадать с поясом региона.
+TEST_F(SyncServiceTest, SleepReportWindowHasOneDayMargin) {
+    Repositories::SyncRunRepository runs;
+    transport.reply_login();
+    // Сессия без оценки, пробуждение 2026-09-24 07:00 +08.
+    transport.reply_encrypted(sleep_page(1790172000, 1790204400));
+    transport.reply_encrypted(empty_page());  // отчёты: пусто
+
+    const long id = runs.create("2026-09-22", "2026-09-28", {"sleep"});
+    service().run(id, "2026-09-22", "2026-09-28", {"sleep"});
+
+    // Запрос отчётов: четвёртый запрос (два логина, выборка сна, отчёты).
+    ASSERT_EQ(transport.requests().size(), 4u);
+    const auto& reports_req = transport.requests().back();
+    const std::string nonce = Xiaomi::Crypto::b64_decode(FakeHttpTransport::form_value(reports_req.body, "_nonce"));
+    const std::string signed_nonce = Xiaomi::Crypto::signed_nonce(FakeHttpTransport::kSsecurityB64, nonce);
+    const std::string decrypted = Xiaomi::Crypto::rc4(
+        signed_nonce, Xiaomi::Crypto::b64_decode(FakeHttpTransport::form_value(reports_req.body, "data")));
+    const auto payload = json::parse(decrypted);
+    const auto expected = Xiaomi::range_to_timestamps("2026-09-23", "2026-09-25", "cn");
+    EXPECT_EQ(payload["start_time"].get<long long>(), expected.first);
+    EXPECT_EQ(payload["end_time"].get<long long>(), expected.second);
+}
+
+// Important 5: отказ авторизации на логине закрывает остальные типы без
+// обращения к облаку. Повторные входы с мёртвым токеном сжигают попытки.
+TEST_F(SyncServiceTest, AuthFailureOnLoginStopsFurtherLoginAttempts) {
+    Repositories::SyncRunRepository runs;
+    transport.reply({401, "", {}});
+
+    const long id = runs.create("2026-09-22", "2026-09-22", {"daily_activity", "sleep"});
+    service().run(id, "2026-09-22", "2026-09-22", {"daily_activity", "sleep"});
+
+    const auto row = runs.get(id);
+    ASSERT_TRUE(row.has_value());
+    EXPECT_EQ((*row)["status"], "failed");
+    EXPECT_EQ((*row)["result"]["daily_activity"]["error"], "auth");
+    EXPECT_EQ((*row)["result"]["sleep"]["error"], "auth");
+    // Один запрос на весь запуск: второй тип к сети не ходил.
+    EXPECT_EQ(transport.requests().size(), 1u);
 }
 
 TEST_F(SyncServiceTest, RepeatRunGivesAddedThenUpdated) {
