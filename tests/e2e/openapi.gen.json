@@ -813,6 +813,43 @@
      }
     }
    },
+   "AbnormalListResponse": {
+    "type": "object",
+    "required": [
+     "data",
+     "count",
+     "total"
+    ],
+    "properties": {
+     "count": {
+      "type": "integer"
+     },
+     "total": {
+      "type": "integer"
+     },
+     "data": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "event_id": {
+         "type": "string"
+        },
+        "start_at": {
+         "type": "string"
+        },
+        "end_at": {
+         "type": "string"
+        },
+        "duration_seconds": {
+         "type": "integer",
+         "nullable": true
+        }
+       }
+      }
+     }
+    }
+   },
    "CoverageResponse": {
     "type": "object",
     "required": [
@@ -1697,6 +1734,79 @@
     }
    }
   },
+  "/api/v1/data/abnormal-heart-beat": {
+   "get": {
+    "summary": "Abnormal heart beat events",
+    "tags": [
+     "data"
+    ],
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "from",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "date"
+      }
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "date"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 10000,
+       "default": 1000
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AbnormalListResponse"
+        }
+       }
+      },
+      "description": "Events in the range, time-ordered"
+     },
+     "400": {
+      "description": "Malformed range or pagination"
+     },
+     "401": {
+      "description": "Not authenticated"
+     },
+     "503": {
+      "description": "Database unavailable"
+     }
+    }
+   }
+  },
   "/api/v1/data/coverage": {
    "get": {
     "summary": "Per-type coverage",
@@ -1782,7 +1892,8 @@
         "stress",
         "spo2",
         "body_measurements",
-        "workouts"
+        "workouts",
+        "abnormal_heart_beat"
        ]
       }
      }
@@ -1804,9 +1915,7 @@
       "description": "schema_version 1.0 envelope (json) or a flat table of one type (csv)"
      },
      "400": {
-      "description": "Malformed range",
-      "unknown type": null,
-      "or csv without a type": null
+      "description": "Malformed range, a range wider than 366 days, unknown type, or csv without a type"
      },
      "401": {
       "description": "Not authenticated"
@@ -1914,11 +2023,18 @@
        }
       }
      },
-     "503": {
-      "description": "Not configured, upstream refused authentication, or protocol mismatch"
-     },
      "409": {
       "description": "A sync run is in progress — probe would rotate the token under it",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "Not configured, upstream refused authentication, or protocol mismatch",
       "content": {
        "application/json": {
         "schema": {
@@ -3130,7 +3246,7 @@
  "x-generated": {
   "by": "scripts/gen-openapi-json.sh",
   "source": "docs/openapi.yaml",
-  "source_bytes": 44981,
-  "source_fnv1a64": "a77456c1daf27564"
+  "source_bytes": 46406,
+  "source_fnv1a64": "f2de783d16297539"
  }
 }

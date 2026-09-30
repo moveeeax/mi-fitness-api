@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <chrono>
 #include <exception>
-#include <typeinfo>
 #include <vector>
 
 #include <spdlog/spdlog.h>
@@ -16,6 +15,7 @@
 #include <nlohmann/json.hpp>
 
 #include "api/RequestUtils.hpp"
+#include "utils/Config.hpp"
 #include "utils/ErrorResponse.hpp"
 #include "xiaomi/Normalize.hpp"
 #include "xiaomi/Regions.hpp"
@@ -146,22 +146,47 @@ void DataController::summary(const HttpRequestPtr& req, std::function<void(const
     Query q;
     if (!parse_query(req, q, callback))
         return;
-    respond_page([q] { return Repositories::HealthReadRepository().summary(q.from, q.to, q.limit, q.offset); },
-                 callback);
+    // Окна сна и resting-пульса строятся от локальной полуночи в поясе
+    // региона: date у активности локальная (то же правило, что у границ
+    // диапазона синка).
+    std::string region;
+    if (Config::is_initialized()) {
+        region = Config::get().get<std::string>("xiaomi.region", "MI_FITNESS_REGION", "");
+    }
+    const long long offset = (region.empty() || region == "cn") ? 8 * 3600 : 0;
+    respond_page(
+        [q, offset] { return Repositories::HealthReadRepository().summary(q.from, q.to, q.limit, q.offset, offset); },
+        callback);
+}
+
+void DataController::abnormalHeartBeat(const HttpRequestPtr& req,
+                                       std::function<void(const HttpResponsePtr&)>&& callback) {
+    Query q;
+    if (!parse_query(req, q, callback))
+        return;
+    respond_page(
+        [q] { return Repositories::HealthReadRepository().abnormal_heart_beat(q.from, q.to, q.limit, q.offset); },
+        callback);
 }
 
 void DataController::coverage(const HttpRequestPtr& /*req*/, std::function<void(const HttpResponsePtr&)>&& callback) {
     try {
         callback(Response::ok(json{{"data", Repositories::HealthReadRepository().coverage()}}));
     } catch (const std::exception& e) {
-        spdlog::warn("coverage unavailable: {}", typeid(e).name());
+        spdlog::warn("coverage unavailable: {}", e.what());
         callback(ErrorResponse::service_unavailable("data_unavailable"));
     }
 }
 
 void DataController::exportData(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
-    static const std::vector<std::string> kTypes = {
-        "daily_activity", "sleep", "heart_rate", "stress", "spo2", "body_measurements", "workouts"};
+    static const std::vector<std::string> kTypes = {"daily_activity",
+                                                    "sleep",
+                                                    "heart_rate",
+                                                    "stress",
+                                                    "spo2",
+                                                    "body_measurements",
+                                                    "workouts",
+                                                    "abnormal_heart_beat"};
     Query q;
     if (!parse_query(req, q, callback))
         return;
@@ -173,6 +198,13 @@ void DataController::exportData(const HttpRequestPtr& req, std::function<void(co
     }
     if (!type.empty() && std::find(kTypes.begin(), kTypes.end(), type) == kTypes.end()) {
         callback(ErrorResponse::bad_request("unknown_data_type", "type must be one of the exported datasets"));
+        return;
+    }
+    // Без потолка ширины json_agg собирает годы данных одним значением в
+    // памяти пода (обзор фазы 3, Important 8).
+    const auto range = Xiaomi::range_to_timestamps(q.from, q.to, "cn");
+    if (range.second - range.first > 366LL * 86400) {
+        callback(ErrorResponse::bad_request("range_too_wide", "export covers at most 366 days per request"));
         return;
     }
     if (format == "csv" && type.empty()) {
@@ -211,7 +243,7 @@ void DataController::exportData(const HttpRequestPtr& req, std::function<void(co
         resp->setBody(to_csv(rows));
         callback(resp);
     } catch (const std::exception& e) {
-        spdlog::warn("export unavailable: {}", typeid(e).name());
+        spdlog::warn("export unavailable: {}", e.what());
         callback(ErrorResponse::service_unavailable("data_unavailable"));
     }
 }
@@ -220,19 +252,29 @@ std::string DataController::to_csv(const nlohmann::json& rows) {
     if (!rows.is_array() || rows.empty()) {
         return "";
     }
-    // Значение с ведущими = + - @ получает апостроф: открытая в таблице
-    // выгрузка не должна исполнять формулы (правило _escape_csv_value моста).
+    // Строковое значение, начинающееся (после пробелов) с = + - @ TAB CR,
+    // получает апостроф: открытая в таблице выгрузка не должна исполнять
+    // формулы. Правила _escape_csv_value моста; числа не трогаются, иначе
+    // отрицательные величины превращаются в текст.
     const auto cell = [](const json& v) {
         std::string s;
+        bool escapable = false;
         if (v.is_null()) {
             s = "";
         } else if (v.is_string()) {
             s = v.get<std::string>();
+            escapable = true;
         } else {
             s = v.dump();
         }
-        if (!s.empty() && (s[0] == '=' || s[0] == '+' || s[0] == '-' || s[0] == '@')) {
-            s.insert(s.begin(), '\'');
+        if (escapable) {
+            const auto lead = s.find_first_not_of(' ');
+            if (lead != std::string::npos) {
+                const char c = s[lead];
+                if (c == '=' || c == '+' || c == '-' || c == '@' || c == '\t' || c == '\r') {
+                    s.insert(s.begin(), '\'');
+                }
+            }
         }
         if (s.find_first_of(",\"\n\r") != std::string::npos) {
             std::string quoted = "\"";

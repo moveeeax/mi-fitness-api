@@ -337,6 +337,21 @@ components:
               sleep_duration_minutes: { type: integer, nullable: true }
               sleep_score: { type: integer, nullable: true }
               resting_bpm: { type: integer, nullable: true }
+    AbnormalListResponse:
+      type: object
+      required: [data, count, total]
+      properties:
+        count: { type: integer }
+        total: { type: integer }
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              event_id: { type: string }
+              start_at: { type: string }
+              end_at: { type: string }
+              duration_seconds: { type: integer, nullable: true }
     CoverageResponse:
       type: object
       required: [data]
@@ -628,6 +643,25 @@ paths:
         '401': { description: Not authenticated }
         '503': { description: Database unavailable }
 
+  /api/v1/data/abnormal-heart-beat:
+    get:
+      summary: Abnormal heart beat events
+      tags: [data]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 10000, default: 1000 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AbnormalListResponse' }
+          description: Events in the range, time-ordered
+        '400': { description: Malformed range or pagination }
+        '401': { description: Not authenticated }
+        '503': { description: Database unavailable }
   /api/v1/data/coverage:
     get:
       summary: Per-type coverage
@@ -650,7 +684,7 @@ paths:
         - { name: from, in: query, required: true, schema: { type: string, format: date } }
         - { name: to, in: query, required: true, schema: { type: string, format: date } }
         - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
-        - { name: type, in: query, schema: { type: string, enum: [daily_activity, sleep, heart_rate, stress, spo2, body_measurements, workouts] } }
+        - { name: type, in: query, schema: { type: string, enum: [daily_activity, sleep, heart_rate, stress, spo2, body_measurements, workouts, abnormal_heart_beat] } }
       responses:
         '200':
           content:
@@ -659,7 +693,7 @@ paths:
             text/csv:
               schema: { type: string }
           description: schema_version 1.0 envelope (json) or a flat table of one type (csv)
-        '400': { description: Malformed range, unknown type, or csv without a type }
+        '400': { description: "Malformed range, a range wider than 366 days, unknown type, or csv without a type" }
         '401': { description: Not authenticated }
         '503': { description: Database unavailable }
   /api/v1/xiaomi/probe:
@@ -697,13 +731,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
-        '503':
-          description: Not configured, upstream refused authentication, or protocol mismatch
         '409':
           description: A sync run is in progress — probe would rotate the token under it
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: Not configured, upstream refused authentication, or protocol mismatch
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }

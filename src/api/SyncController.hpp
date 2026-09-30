@@ -15,7 +15,6 @@
 #pragma once
 
 #include <string>
-#include <typeinfo>
 #include <vector>
 
 #include <drogon/HttpController.h>
@@ -97,7 +96,7 @@ public:
         } catch (const std::exception& e) {
             // База или очередь лежат: это состояние инфраструктуры, а не 500
             // без следа в логе.
-            spdlog::warn("sync enqueue unavailable: {}", typeid(e).name());
+            spdlog::warn("sync enqueue unavailable: {}", e.what());
             callback(ErrorResponse::service_unavailable("queue_unavailable"));
         }
     }
@@ -124,7 +123,7 @@ public:
             }
             callback(Response::ok(json{{"data", *row}}));
         } catch (const std::exception& e) {
-            spdlog::warn("sync status unavailable: {}", typeid(e).name());
+            spdlog::warn("sync status unavailable: {}", e.what());
             callback(ErrorResponse::service_unavailable("journal_unavailable"));
         }
     }

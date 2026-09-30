@@ -262,3 +262,61 @@ TEST_F(DataApiTest, ExportCsvNeedsATypeAndEscapesFormulas) {
     EXPECT_EQ(body.find(",=SUM"), std::string::npos);
     EXPECT_NE(body.find("'=SUM"), std::string::npos);
 }
+
+// Обзор фазы 3, Important 3: события аномального пульса синкаются, но не
+// читались и не выгружались, а мост, который их выгружал, удалён.
+TEST_F(DataApiTest, AbnormalHeartBeatIsReadableAndExported) {
+    Database::get().execute_write([](auto& txn) {
+        txn.exec(
+            "INSERT INTO abnormal_heart_beat_events (user_id, event_id, start_at, end_at, duration_seconds) "
+            "VALUES ('42', 'ev-1', '2026-09-21T10:00:00+00:00', '2026-09-21T10:01:00+00:00', 60)");
+        return true;
+    });
+
+    HttpResponsePtr resp;
+    controller.abnormalHeartBeat(ranged("2026-09-21", "2026-09-21"), [&](const HttpResponsePtr& r) { resp = r; });
+    ASSERT_NE(resp, nullptr);
+    ASSERT_EQ(resp->statusCode(), k200OK) << resp->body();
+    auto body = body_of(resp);
+    ASSERT_EQ(body["data"].size(), 1u);
+    EXPECT_EQ(body["data"][0]["event_id"], "ev-1");
+
+    auto req = ranged("2026-09-21", "2026-09-21");
+    req->setParameter("format", "json");
+    HttpResponsePtr exp;
+    controller.exportData(req, [&](const HttpResponsePtr& r) { exp = r; });
+    ASSERT_NE(exp, nullptr);
+    const auto envelope = body_of(exp);
+    ASSERT_TRUE(envelope["records"].contains("abnormal_heart_beat")) << envelope.dump();
+    EXPECT_EQ(envelope["records"]["abnormal_heart_beat"].size(), 1u);
+}
+
+// Обзор фазы 3, Important 5: date у активности локальная (пояс устройства),
+// а окна сводки строились от суток UTC — утренний resting-пульс уезжал в
+// предыдущую строку. Окно считается в поясе региона (+08 для cn).
+TEST_F(DataApiTest, SummaryWindowFollowsTheRegionZone) {
+    seed_activity("2026-09-21", 5000);
+    // 05:00 +08:00 двадцать первого = 21:00Z двадцатого: по UTC-окну это
+    // предыдущие сутки.
+    seed_heart_rate("2026-09-20T21:00:00+00:00", 55, "resting");
+
+    HttpResponsePtr resp;
+    controller.summary(ranged("2026-09-21", "2026-09-21"), [&](const HttpResponsePtr& r) { resp = r; });
+    ASSERT_NE(resp, nullptr);
+    ASSERT_EQ(resp->statusCode(), k200OK) << resp->body();
+    const auto body = body_of(resp);
+    ASSERT_EQ(body["data"].size(), 1u);
+    EXPECT_EQ(body["data"][0]["resting_bpm"], 55);
+}
+
+// Обзор фазы 3, Important 8: экспорт без потолка ширины окна собирал в
+// память годы данных одним значением json_agg.
+TEST_F(DataApiTest, ExportRejectsARangeWiderThanAYear) {
+    auto req = ranged("2020-01-01", "2030-01-01");
+    req->setParameter("format", "json");
+    HttpResponsePtr resp;
+    controller.exportData(req, [&](const HttpResponsePtr& r) { resp = r; });
+    ASSERT_NE(resp, nullptr);
+    EXPECT_EQ(resp->statusCode(), k400BadRequest);
+    EXPECT_EQ(body_of(resp)["error"], "range_too_wide");
+}

@@ -317,8 +317,7 @@ nlohmann::json SyncService::run(long run_id,
         } catch (const std::exception& e) {
             any_failed = true;
             entry["error"] = "other";
-            // Тексты ошибок pqxx несут значения строк сервера: в лог идёт тип.
-            spdlog::warn("sync {}: failure: {}", data_type, typeid(e).name());
+            spdlog::warn("sync {}: failure: {}", data_type, e.what());
         }
     }
 
