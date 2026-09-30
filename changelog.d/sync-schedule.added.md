@@ -1,1 +1,0 @@
-recurring sync: `MI_FITNESS_SYNC_SCHEDULE_HOURS` runs a timer in the API pod that enqueues a sync of the last `MI_FITNESS_SYNC_WINDOW_DAYS` days (region-zone dates); disabled by default, 4 hours in prod
