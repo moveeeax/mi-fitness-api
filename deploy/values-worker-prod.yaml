@@ -10,6 +10,10 @@ replicaCount: 1
 extraEnvFrom:
   - secretRef:
       name: mi-fitness-app
+  # Бюджет на тип поднят для глубокого бэкфила: 92 дня истории это 14 окон
+  # по 7 дней, дефолтных 180 секунд не хватает.
+  - configMapRef:
+      name: mi-fitness-sync-tuning
 
 externalDatabase:
   host: postgresql-rw.db.svc.cluster.local

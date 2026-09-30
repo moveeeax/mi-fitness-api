@@ -24,6 +24,9 @@ public:
 
     HttpResponse send(const HttpRequest& request) override;
 
+    /// Предел одного запроса в секундах: тестам и диагностике.
+    long timeout_seconds() const { return timeout_seconds_; }
+
 private:
     long timeout_seconds_;
 };
