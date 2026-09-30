@@ -130,6 +130,14 @@ nlohmann::json SyncService::run(long run_id,
             Repositories::UpsertCounts counts;
             long skipped = 0;
             long suppressed = 0;
+            // daily_activity агрегируется по всему диапазону: границы кусков
+            // идут в поясе региона, устройство может жить в другом, и день на
+            // стыке кусков размазан по двум выборкам. Upsert по кускам
+            // перезатирал полный агрегат огрызком (сверка с мостом, отчёт
+            // 2026-09), поэтому минуты копятся здесь и нормализуются один раз
+            // после всех кусков.
+            std::vector<nlohmann::json> activity_steps;
+            std::vector<nlohmann::json> activity_calories;
 
             for (const auto& chunk : split_range(from, to, chunk_days)) {
                 const auto elapsed =
@@ -144,12 +152,8 @@ nlohmann::json SyncService::run(long run_id,
                 if (data_type == "daily_activity") {
                     const auto steps = client.fetch_key("steps", chunk.from, chunk.to, {});
                     const auto calories = client.fetch_key("calories", chunk.from, chunk.to, {});
-                    auto normalized = Xiaomi::normalize_daily_activity(steps, calories, user);
-                    const auto c = Repositories::ActivityRepository().upsert(normalized.days);
-                    counts.added += c.added;
-                    counts.updated += c.updated;
-                    skipped += normalized.skipped;
-                    suppressed += normalized.suppressed_steps;
+                    activity_steps.insert(activity_steps.end(), steps.begin(), steps.end());
+                    activity_calories.insert(activity_calories.end(), calories.begin(), calories.end());
                 } else if (data_type == "sleep") {
                     const auto records = client.fetch_key("sleep", chunk.from, chunk.to, {});
                     auto sessions = Xiaomi::normalize_sleep(records, user, skipped);
@@ -223,6 +227,16 @@ nlohmann::json SyncService::run(long run_id,
                 } else {
                     throw Xiaomi::MiFitnessProtocolError("unknown data type requested");
                 }
+            }
+
+            if (data_type == "daily_activity") {
+                const std::string& user = client.credentials().user_id;
+                auto normalized = Xiaomi::normalize_daily_activity(activity_steps, activity_calories, user);
+                const auto c = Repositories::ActivityRepository().upsert(normalized.days);
+                counts.added += c.added;
+                counts.updated += c.updated;
+                skipped += normalized.skipped;
+                suppressed += normalized.suppressed_steps;
             }
 
             entry["added"] = counts.added;
