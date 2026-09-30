@@ -29,21 +29,17 @@ public:
     ADD_METHOD_TO(SyncController::status, "/api/v1/sync/{id}", Get);
     METHOD_LIST_END
 
-    void enqueue(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
+    void enqueue(const HttpRequestPtr& /*req*/, std::function<void(const HttpResponsePtr&)>&& callback) {
         json response = {{"message", "SyncController::enqueue — TODO"}};
         callback(Response::ok(response));
     }
 
-    void status(const HttpRequestPtr& req,
+    void status(const HttpRequestPtr& /*req*/,
                 std::function<void(const HttpResponsePtr&)>&& callback,
                 const std::string& id) {
         json response = {{"message", "SyncController::status — TODO"}, {"id", id}};
         callback(Response::ok(response));
     }
 };
-callback(Response::created(response));
-}
-}
-;
 
 }  // namespace Api
