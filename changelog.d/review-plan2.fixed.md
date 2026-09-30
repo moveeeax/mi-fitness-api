@@ -1,1 +1,0 @@
-sync survives review findings: range-edge days are not overwritten, a stale running run releases the mutex, finished runs do not restart, the sleep report window gets a one-day margin, and a dead token stops the run after the first auth refusal

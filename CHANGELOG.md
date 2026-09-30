@@ -6,6 +6,11 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.4] — 2026-09-30
+
+### Fixed
+- sync survives review findings: range-edge days are not overwritten, a stale running run releases the mutex, finished runs do not restart, the sleep report window gets a one-day margin, and a dead token stops the run after the first auth refusal
+
 ## [1.8.3] — 2026-09-30
 
 ### Fixed
