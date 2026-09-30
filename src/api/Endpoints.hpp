@@ -63,6 +63,8 @@ inline const std::vector<EndpointInfo>& get_endpoints() {
         {"GET", "/api/v1/data/body", "Body measurements for a date range"},
         {"GET", "/api/v1/data/workouts", "Workouts for a date range"},
         {"GET", "/api/v1/data/summary", "Per-day summary: steps, sleep, resting heart rate"},
+        {"GET", "/api/v1/data/coverage", "Per-type coverage: first/last date, records, last sync"},
+        {"GET", "/api/v1/data/export", "Export rows as a schema_version 1.0 json envelope or csv"},
         {"GET", "/api/v1/xiaomi/probe", "XiaomiController::listXiaomi"},
         {"POST", "/api/v1/sync", "Sync: enqueue a cloud sync run"},
         {"GET", "/api/v1/sync/{id}", "Sync: read a run's journal entry"},

@@ -137,6 +137,70 @@ public:
             select, "SELECT COUNT(*) FROM daily_activity WHERE date BETWEEN $1 AND $2", from, to, limit, offset);
     }
 
+    /// Границы и счётчики по каждому типу плюс время последнего синка.
+    nlohmann::json coverage() {
+        nlohmann::json out = nlohmann::json::object();
+        Database::get().execute_read([&](auto& txn) {
+            const struct {
+                const char* type;
+                const char* table;
+                const char* column;
+            } kTables[] = {
+                {"daily_activity", "daily_activity", "date"},
+                {"sleep", "sleep_sessions", "end_at"},
+                {"heart_rate", "heart_rate_samples", "timestamp"},
+                {"stress", "stress_samples", "timestamp"},
+                {"spo2", "spo2_samples", "timestamp"},
+                {"body_measurements", "body_measurements", "timestamp"},
+                {"workouts", "workouts", "start_at"},
+                {"abnormal_heart_beat", "abnormal_heart_beat_events", "start_at"},
+            };
+            for (const auto& e : kTables) {
+                const std::string col(e.column);
+                auto r = txn.exec(
+                    "SELECT COALESCE(json_build_object("
+                    "'first_date', MIN(" +
+                    col +
+                    ")::date::text, "
+                    "'last_date', MAX(" +
+                    col +
+                    ")::date::text, "
+                    "'records', COUNT(*)), '{}'::json) FROM " +
+                    std::string(e.table));
+                out[e.type] = nlohmann::json::parse(r[0][0].template as<std::string>());
+            }
+            auto s = txn.exec(
+                "SELECT COALESCE(json_object_agg(data_type, to_char(last_sync_at AT TIME ZONE 'UTC', "
+                "'YYYY-MM-DD\"T\"HH24:MI:SS\"+00:00\"')), '{}'::json) FROM sync_state");
+            const auto last = nlohmann::json::parse(s[0][0].template as<std::string>());
+            for (auto& [type, entry] : out.items()) {
+                entry["last_sync_at"] = last.contains(type) ? last[type] : nlohmann::json();
+            }
+            return 0;
+        });
+        return out;
+    }
+
+    /// Все строки типа за диапазон, без пагинации: страница экспорта.
+    nlohmann::json export_rows(const std::string& type, const std::string& from, const std::string& to) {
+        const long kNoLimit = 100000000;
+        if (type == "daily_activity")
+            return daily_activity(from, to, kNoLimit, 0).rows;
+        if (type == "sleep")
+            return sleep(from, to, kNoLimit, 0).rows;
+        if (type == "heart_rate")
+            return heart_rate(from, to, "", kNoLimit, 0).rows;
+        if (type == "stress")
+            return stress(from, to, kNoLimit, 0).rows;
+        if (type == "spo2")
+            return spo2(from, to, kNoLimit, 0).rows;
+        if (type == "body_measurements")
+            return body(from, to, kNoLimit, 0).rows;
+        if (type == "workouts")
+            return workouts(from, to, kNoLimit, 0).rows;
+        return nlohmann::json::array();
+    }
+
 private:
     /// ISO UTC с явным +00:00: timestamptz наружу без потери смысла.
     static std::string iso(const std::string& column) {

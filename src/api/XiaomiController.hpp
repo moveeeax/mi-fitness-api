@@ -22,6 +22,7 @@
 // would cycle). Pull only the small shared helpers.
 #include "api/RequestUtils.hpp"
 #include "repositories/CredentialsRepository.hpp"
+#include "repositories/SyncRunRepository.hpp"
 #include "utils/ErrorResponse.hpp"
 #include "xiaomi/CloudClient.hpp"
 #include "xiaomi/DataKeys.hpp"
@@ -40,6 +41,19 @@ public:
     METHOD_LIST_END
 
     void probe(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
+        // Синк и probe не живут одновременно: оба логинятся, а каждый логин
+        // ротирует passToken. Живой запуск в журнале — probe отказывается
+        // до похода в облако (Global Constraint фазы 3).
+        try {
+            if (Repositories::SyncRunRepository().any_running()) {
+                callback(ErrorResponse::conflict("sync_in_progress", "a sync run is in progress, retry later"));
+                return;
+            }
+        } catch (const std::exception&) {
+            // Недоступная база не должна прятать probe: он сам упрётся в неё
+            // ниже и ответит честнее.
+        }
+
         const std::string key = req->getParameter("key");
         const std::string from = req->getParameter("from");
         const std::string to = req->getParameter("to");

@@ -5,7 +5,11 @@
 
 #include "api/DataController.hpp"
 
+#include <algorithm>
+#include <chrono>
 #include <exception>
+#include <typeinfo>
+#include <vector>
 
 #include <spdlog/spdlog.h>
 
@@ -13,6 +17,7 @@
 
 #include "api/RequestUtils.hpp"
 #include "utils/ErrorResponse.hpp"
+#include "xiaomi/Normalize.hpp"
 #include "xiaomi/Regions.hpp"
 
 namespace Api {
@@ -143,6 +148,130 @@ void DataController::summary(const HttpRequestPtr& req, std::function<void(const
         return;
     respond_page([q] { return Repositories::HealthReadRepository().summary(q.from, q.to, q.limit, q.offset); },
                  callback);
+}
+
+void DataController::coverage(const HttpRequestPtr& /*req*/, std::function<void(const HttpResponsePtr&)>&& callback) {
+    try {
+        callback(Response::ok(json{{"data", Repositories::HealthReadRepository().coverage()}}));
+    } catch (const std::exception& e) {
+        spdlog::warn("coverage unavailable: {}", typeid(e).name());
+        callback(ErrorResponse::service_unavailable("data_unavailable"));
+    }
+}
+
+void DataController::exportData(const HttpRequestPtr& req, std::function<void(const HttpResponsePtr&)>&& callback) {
+    static const std::vector<std::string> kTypes = {
+        "daily_activity", "sleep", "heart_rate", "stress", "spo2", "body_measurements", "workouts"};
+    Query q;
+    if (!parse_query(req, q, callback))
+        return;
+    const std::string format = req->getParameter("format").empty() ? "json" : req->getParameter("format");
+    const std::string type = req->getParameter("type");
+    if (format != "json" && format != "csv") {
+        callback(ErrorResponse::bad_request("invalid_format", "format must be json or csv"));
+        return;
+    }
+    if (!type.empty() && std::find(kTypes.begin(), kTypes.end(), type) == kTypes.end()) {
+        callback(ErrorResponse::bad_request("unknown_data_type", "type must be one of the exported datasets"));
+        return;
+    }
+    if (format == "csv" && type.empty()) {
+        // CSV это плоская таблица одного типа; все типы разом это JSON.
+        callback(ErrorResponse::bad_request("csv_needs_type", "csv export takes exactly one type"));
+        return;
+    }
+    try {
+        Repositories::HealthReadRepository repo;
+        if (format == "json") {
+            json records = json::object();
+            if (type.empty()) {
+                for (const auto& t : kTypes) {
+                    records[t] = repo.export_rows(t, q.from, q.to);
+                }
+            } else {
+                records[type] = repo.export_rows(type, q.from, q.to);
+            }
+            // Конверт как у Python-моста (export.py, schema_version 1.0):
+            // потребители выгрузки не переучиваются.
+            const auto now =
+                std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
+                    .count();
+            callback(Response::ok(
+                json{{"schema_version", "1.0"},
+                     {"source", "mi-fitness-api"},
+                     {"generated_at", Xiaomi::detail::iso_with_offset(now, 0)},
+                     {"filters",
+                      {{"dataset", type.empty() ? json() : json(type)}, {"start_date", q.from}, {"end_date", q.to}}},
+                     {"records", records}}));
+            return;
+        }
+        const auto rows = repo.export_rows(type, q.from, q.to);
+        auto resp = HttpResponse::newHttpResponse();
+        resp->setContentTypeString("text/csv; charset=utf-8");
+        resp->setBody(to_csv(rows));
+        callback(resp);
+    } catch (const std::exception& e) {
+        spdlog::warn("export unavailable: {}", typeid(e).name());
+        callback(ErrorResponse::service_unavailable("data_unavailable"));
+    }
+}
+
+std::string DataController::to_csv(const nlohmann::json& rows) {
+    if (!rows.is_array() || rows.empty()) {
+        return "";
+    }
+    // Значение с ведущими = + - @ получает апостроф: открытая в таблице
+    // выгрузка не должна исполнять формулы (правило _escape_csv_value моста).
+    const auto cell = [](const json& v) {
+        std::string s;
+        if (v.is_null()) {
+            s = "";
+        } else if (v.is_string()) {
+            s = v.get<std::string>();
+        } else {
+            s = v.dump();
+        }
+        if (!s.empty() && (s[0] == '=' || s[0] == '+' || s[0] == '-' || s[0] == '@')) {
+            s.insert(s.begin(), '\'');
+        }
+        if (s.find_first_of(",\"\n\r") != std::string::npos) {
+            std::string quoted = "\"";
+            for (const char c : s) {
+                if (c == '\"') {
+                    quoted += "\"\"";
+                } else {
+                    quoted += c;
+                }
+            }
+            quoted += "\"";
+            return quoted;
+        }
+        return s;
+    };
+    std::string out;
+    bool first = true;
+    for (const auto& [key, value] : rows[0].items()) {
+        (void)value;
+        if (!first) {
+            out += ',';
+        }
+        out += key;
+        first = false;
+    }
+    out += '\n';
+    for (const auto& row : rows) {
+        first = true;
+        for (const auto& [key, value] : row.items()) {
+            (void)key;
+            if (!first) {
+                out += ',';
+            }
+            out += cell(value);
+            first = false;
+        }
+        out += '\n';
+    }
+    return out;
 }
 
 }  // namespace Api

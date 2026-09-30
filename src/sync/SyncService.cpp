@@ -138,6 +138,10 @@ nlohmann::json SyncService::run(long run_id,
     long type_timeout = 180;
     if (Config::is_initialized()) {
         chunk_days = Config::get().get<int>("xiaomi.sync_chunk_days", "MI_FITNESS_CHUNK_DAYS", 7);
+        if (chunk_days < 1) {
+            // Ноль в ручке вешал split_range навсегда (minor обзора плана 2).
+            chunk_days = 1;
+        }
         type_timeout = Config::get().get<long>("xiaomi.sync_type_timeout_seconds", "MI_FITNESS_SYNC_TYPE_TIMEOUT", 180);
     }
 
@@ -313,7 +317,8 @@ nlohmann::json SyncService::run(long run_id,
         } catch (const std::exception& e) {
             any_failed = true;
             entry["error"] = "other";
-            spdlog::warn("sync {}: failure: {}", data_type, e.what());
+            // Тексты ошибок pqxx несут значения строк сервера: в лог идёт тип.
+            spdlog::warn("sync {}: failure: {}", data_type, typeid(e).name());
         }
     }
 

@@ -75,6 +75,12 @@ public:
         });
     }
 
+    /// Есть ли живой запуск: probe отказывается работать под синком.
+    bool any_running() {
+        return Database::get().execute_read(
+            [](auto& txn) { return !txn.exec("SELECT 1 FROM sync_runs WHERE status = 'running' LIMIT 1").empty(); });
+    }
+
     std::optional<nlohmann::json> get(long id) {
         return Database::get().execute_read([&](auto& txn) -> std::optional<nlohmann::json> {
             auto r = txn.exec_params(
