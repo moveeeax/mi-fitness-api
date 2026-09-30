@@ -85,3 +85,4 @@ security -> utils
 webhooks -> jobs
 webhooks -> utils
 xiaomi -> utils
+xiaomi -> domain
