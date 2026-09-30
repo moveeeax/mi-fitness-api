@@ -165,6 +165,8 @@
     "reseed": "${MI_FITNESS_RESEED:-false}",
     "sync_chunk_days": "${MI_FITNESS_CHUNK_DAYS:-7}",
     "sync_type_timeout_seconds": "${MI_FITNESS_SYNC_TYPE_TIMEOUT:-180}",
-    "http_timeout_seconds": "${MI_FITNESS_HTTP_TIMEOUT:-20}"
+    "http_timeout_seconds": "${MI_FITNESS_HTTP_TIMEOUT:-20}",
+    "sync_schedule_hours": "${MI_FITNESS_SYNC_SCHEDULE_HOURS:-0}",
+    "sync_window_days": "${MI_FITNESS_SYNC_WINDOW_DAYS:-2}"
   }
 }

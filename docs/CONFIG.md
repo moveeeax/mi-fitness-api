@@ -258,3 +258,5 @@ CONFIG_FILE=config/local.json ./mi_fitness_api
 | `MI_FITNESS_CHUNK_DAYS` | `xiaomi.sync_chunk_days` | int | `7` | Width of one sync window in days |
 | `MI_FITNESS_SYNC_TYPE_TIMEOUT` | `xiaomi.sync_type_timeout_seconds` | int | `180` | Wall-clock budget per data type, checked between chunks. Raise for deep backfills. daily_activity aggregates over the whole range and writes once at the end, so a budget overrun for that type stores nothing for the run |
 | `MI_FITNESS_HTTP_TIMEOUT` | `xiaomi.http_timeout_seconds` | int | `20` | libcurl budget for ONE cloud request. Deep backfill responses take longer than the default |
+| `MI_FITNESS_SYNC_SCHEDULE_HOURS` | `xiaomi.sync_schedule_hours` | int | `0` | Recurring sync period in hours, runs in the API pod and enqueues a job. `0` (default) disables the schedule |
+| `MI_FITNESS_SYNC_WINDOW_DAYS` | `xiaomi.sync_window_days` | int | `2` | How many recent days each scheduled sync covers, dates in the region zone |

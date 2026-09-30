@@ -11,6 +11,11 @@ replicaCount: 1
 extraEnvFrom:
   - secretRef:
       name: mi-fitness-app
+  # Ручки синка и расписание: deploy/sync-tuning-configmap.yaml. Таймер
+  # планового синка живёт в API-поде.
+  - configMapRef:
+      name: mi-fitness-sync-tuning
+      optional: true
 
 externalDatabase:
   host: postgresql-rw.db.svc.cluster.local
