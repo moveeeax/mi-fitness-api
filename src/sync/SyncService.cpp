@@ -144,8 +144,10 @@ nlohmann::json SyncService::run(long run_id,
     const long stale_seconds = type_timeout * static_cast<long>(kAllDataTypes.size()) + 600;
     if (!try_start(run_id, stale_seconds)) {
         // Другой запуск держит running: честный skipped, облако не трогаем.
+        // Журнал трогается только у стоящего в очереди: завершённый запуск
+        // повторная доставка задания не переписывает.
         result["skipped_reason"] = "another sync run is in progress";
-        runs.finish(run_id, "skipped", result);
+        runs.skip_if_queued(run_id, result);
         return result;
     }
 
