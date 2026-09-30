@@ -36,9 +36,12 @@ public:
         }
         array_literal += "}";
         return Database::get().execute_write([&](auto& txn) {
+            // Статус queued, не running: строка running одна на систему по
+            // частичному уникальному индексу, и занимать её должен исполнитель
+            // атомарным переходом, а не постановщик.
             auto r = txn.exec_params(
-                "INSERT INTO sync_runs (requested_start, requested_end, data_types) "
-                "VALUES ($1, $2, $3::text[]) RETURNING id",
+                "INSERT INTO sync_runs (status, requested_start, requested_end, data_types) "
+                "VALUES ('queued', $1, $2, $3::text[]) RETURNING id",
                 from,
                 to,
                 array_literal);

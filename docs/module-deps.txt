@@ -79,6 +79,10 @@ root -> observability
 root -> repositories
 root -> security
 root -> utils
+sync -> xiaomi
+sync -> utils
+sync -> repositories
+sync -> database
 security -> cache
 security -> database
 security -> utils

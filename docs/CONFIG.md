@@ -287,3 +287,5 @@ CONFIG_FILE=config/local.json ./mi_fitness_api
 | `MI_FITNESS_PASS_TOKEN` | `xiaomi.pass_token` | string | `""` | Seed passToken from the cluster Secret. The rotated token in Postgres always wins; this value is only written when the table is empty or reseed is set. Never log or commit |
 | `MI_FITNESS_REGION` | `xiaomi.region` | string | `cn` | Cloud region candidate (ru, cn, de, i2, sg, us) |
 | `MI_FITNESS_RESEED` | `xiaomi.reseed` | bool | `false` | Emergency lever: overwrite the stored token with the seed on next boot. Turn off afterwards |
+| `MI_FITNESS_CHUNK_DAYS` | `xiaomi.sync_chunk_days` | int | `7` | Width of one sync window in days |
+| `MI_FITNESS_SYNC_TYPE_TIMEOUT` | `xiaomi.sync_type_timeout_seconds` | int | `180` | Wall-clock budget per data type, checked between chunks. Raise for deep backfills |
