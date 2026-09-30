@@ -10,10 +10,12 @@ replicaCount: 1
 extraEnvFrom:
   - secretRef:
       name: mi-fitness-app
-  # Бюджет на тип поднят для глубокого бэкфила: 92 дня истории это 14 окон
-  # по 7 дней, дефолтных 180 секунд не хватает.
+  # Ручки таймаутов синка: deploy/sync-tuning-configmap.yaml, применяется
+  # kubectl-ом до helm upgrade. optional: под поднимется и без него, на
+  # дефолтных значениях из кода.
   - configMapRef:
       name: mi-fitness-sync-tuning
+      optional: true
 
 externalDatabase:
   host: postgresql-rw.db.svc.cluster.local

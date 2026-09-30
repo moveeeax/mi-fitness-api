@@ -1,0 +1,14 @@
+# Ручки таймаутов синка для боевого воркера. Значения читает бинарь:
+# MI_FITNESS_SYNC_TYPE_TIMEOUT — потолок на тип данных (docs/CONFIG.md);
+#   с дефолтными 180 секундами трёхмесячный бэкфил daily_activity не
+#   успевает, а тип пишется одним заходом после всех кусков.
+# MI_FITNESS_HTTP_TIMEOUT — предел одного запроса к облаку.
+# Применение: kubectl apply -f deploy/sync-tuning-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mi-fitness-sync-tuning
+  namespace: mi-fitness-api
+data:
+  MI_FITNESS_SYNC_TYPE_TIMEOUT: "1800"
+  MI_FITNESS_HTTP_TIMEOUT: "120"
