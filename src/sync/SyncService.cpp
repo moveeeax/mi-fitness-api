@@ -46,7 +46,7 @@ std::vector<Chunk> split_range(const std::string& from, const std::string& to, i
         }
         const auto iso = [](sys_days d) {
             const year_month_day ymd{d};
-            char out[11];
+            char out[16];
             std::snprintf(out,
                           sizeof(out),
                           "%04d-%02d-%02d",
