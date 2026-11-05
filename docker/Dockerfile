@@ -56,7 +56,7 @@ RUN wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/nul
 # baseline in /app/vcpkg.json resolves identically across machines.
 # Override at build time only if you need a newer registry snapshot
 # (you'll also want to bump builtin-baseline in vcpkg.json to match).
-ARG VCPKG_REF=c4aad2868cfbe7c364192d5de82385647f8425b1
+ARG VCPKG_REF=5d68747adeb88f05aac8ca4d18d29e50296509b1
 WORKDIR /opt
 # The clone itself is a GitHub fetch and can hit transient 429/400 — retry it
 # the same way as the vcpkg install below.
