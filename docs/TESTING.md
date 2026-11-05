@@ -114,7 +114,7 @@ the curl TU), and anything needing Drogon types.
 
 ## Known gaps (be honest about these before you rely on them)
 
-- **No behavioral coverage** for Kafka messaging, SMTP delivery (the Mailer is
+- **No behavioral coverage** for SMTP delivery (the Mailer is
   exercised through the jobs path, not against a real SMTP server), or Postgres
   streaming replication. These have lifecycle/health guards only — wiring, not
   behavior.

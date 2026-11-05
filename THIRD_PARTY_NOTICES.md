@@ -28,7 +28,6 @@ run a license checker over `frontend/node_modules`.
 | Drogon | MIT |
 | libpqxx | BSD-3-Clause |
 | redis-plus-plus | Apache-2.0 † |
-| librdkafka | BSD-2-Clause |
 | spdlog | MIT |
 | prometheus-cpp | MIT |
 | opentelemetry-cpp | Apache-2.0 † |
