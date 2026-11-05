@@ -6,7 +6,7 @@ REST-сервис синхронизации данных Mi Fitness (Xiaomi Clo
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)
 ![Drogon](https://img.shields.io/badge/Drogon-HTTP%20Framework-green.svg)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791.svg)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-336791.svg)
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D.svg)
 ![License](https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg)
 

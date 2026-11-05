@@ -383,12 +383,14 @@ backup:
   schedule: "0 2 * * *"        # daily 02:00 UTC
   # REQUIRED: an image with BOTH `pg_dump` and the `aws` CLI on PATH — the job
   # runs read-only-rootfs as non-root, so installing tools at runtime is NOT an
-  # option. postgres:16-alpine ships pg_dump but NOT aws; amazon/aws-cli ships
+  # option. postgres:18-alpine ships pg_dump but NOT aws; amazon/aws-cli ships
   # aws but NOT pg_dump — either alone fails silently. Build a tiny image that
   # bundles both (postgres-client + aws-cli) and set backup.image to it before
-  # enabling. The postgres:16-alpine default below covers the pg_dump half so
-  # `helm template` renders; override it for a working backup.
-  image: postgres:16-alpine
+  # enabling. The postgres:18-alpine default below covers the pg_dump half so
+  # `helm template` renders; override it for a working backup. pg_dump must be
+  # at least the server's major: production runs CNPG PostgreSQL 18
+  # (deploy/db/README.md).
+  image: postgres:18-alpine
   successfulJobsHistoryLimit: 7
   failedJobsHistoryLimit: 3
   activeDeadlineSeconds: 3600
