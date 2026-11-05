@@ -103,7 +103,6 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(HIREDIS REQUIRED IMPORTED_TARGET hiredis)
 pkg_check_modules(REDIS_PLUS_PLUS REQUIRED IMPORTED_TARGET redis++)
 pkg_check_modules(UUID REQUIRED IMPORTED_TARGET uuid)
-find_package(RdKafka CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(prometheus-cpp CONFIG REQUIRED)
 find_package(opentelemetry-cpp CONFIG REQUIRED)
@@ -174,8 +173,6 @@ set(COMMON_LIBS
     PkgConfig::HIREDIS
     PkgConfig::REDIS_PLUS_PLUS
     PkgConfig::UUID
-    RdKafka::rdkafka
-    RdKafka::rdkafka++
     spdlog::spdlog
     prometheus-cpp::core
     prometheus-cpp::pull

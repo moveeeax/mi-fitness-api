@@ -167,11 +167,6 @@ handlers **plus** the worker, even when replicas absorb the bulk of reads.
 
 For URL components: `REDIS_HOST`, `REDIS_PORT`.
 
-## Messaging (Kafka)
-
-| Env | JSON key | Type | Default | Notes |
-|---|---|---|---|---|
-
 ## Jobs
 
 | Env | JSON key | Type | Default | Notes |
