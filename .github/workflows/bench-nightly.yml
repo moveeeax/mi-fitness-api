@@ -23,12 +23,12 @@ jobs:
     # trend — the chart and alerts are only meaningful for master history.
     if: github.ref == 'refs/heads/master'
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
       - name: Build runtime image (dep layer from cache)
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
           file: docker/Dockerfile
@@ -48,7 +48,7 @@ jobs:
         run: ./scripts/bench-ci.sh
 
       - name: Publish throughput trend
-        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba  # v1
+        uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc  # v1.22.2
         with:
           name: Throughput
           tool: customBiggerIsBetter
@@ -60,7 +60,7 @@ jobs:
           fail-on-alert: false
 
       - name: Publish latency and footprint trend
-        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba  # v1
+        uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc  # v1.22.2
         with:
           name: Latency & footprint
           tool: customSmallerIsBetter
@@ -80,7 +80,7 @@ jobs:
 
       - name: Upload bench output
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: bench-out
           path: bench-out/

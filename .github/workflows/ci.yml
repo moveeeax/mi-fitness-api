@@ -30,7 +30,7 @@ jobs:
     # cold too — the timeout must let a cold build finish once.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2  # HEAD^ for the push-event scope diff
 
@@ -70,7 +70,7 @@ jobs:
 
       - name: Set up Docker Buildx
         if: steps.scope.outputs.relevant == 'true'
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
       - name: Expose Actions cache env for sccache
         # Exports ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN so sccache (inside
@@ -78,11 +78,11 @@ jobs:
         # cache API. The Dockerfile receives them as BuildKit secrets — never
         # ARGs — so layer cache keys and image history stay credential-free.
         if: steps.scope.outputs.relevant == 'true'
-        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
+        uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487  # v4.0.0
 
       - name: Build builder image (cache warm)
         if: steps.scope.outputs.relevant == 'true'
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
           file: docker/Dockerfile
@@ -128,7 +128,7 @@ jobs:
     # Pure text lint — doesn't need Docker, runs fast, gates style issues
     # before the heavier build job finishes.
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install clang-format 17
         run: |
@@ -165,7 +165,7 @@ jobs:
     # Catch credentials before they land. We learned the hard way that a
     # local helm/values.yaml with stage passwords can slip into git.
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0  # gitleaks needs history to scan past commits.
       # The official gitleaks-action requires a PAID license for repos owned by
@@ -186,7 +186,7 @@ jobs:
     # Api::get_endpoints() match docs/openapi.yaml. Runs in seconds, gates
     # the heavier build job from going green if the spec is stale.
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check OpenAPI drift
         run: ./scripts/check-openapi-drift.sh
       - name: Check routes registered
@@ -219,7 +219,7 @@ jobs:
     # unconditional run.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2  # HEAD^ for the push-event scope diff
 
@@ -274,7 +274,7 @@ jobs:
     # link, and can see a CA bundle.
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2  # HEAD^ for the push-event scope diff
 
@@ -314,7 +314,7 @@ jobs:
 
       - name: Set up Docker Buildx
         if: steps.scope.outputs.relevant == 'true'
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
       - name: Expose Actions cache env for sccache
         # Exports ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN so sccache (inside
@@ -322,11 +322,11 @@ jobs:
         # cache API. The Dockerfile receives them as BuildKit secrets — never
         # ARGs — so layer cache keys and image history stay credential-free.
         if: steps.scope.outputs.relevant == 'true'
-        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
+        uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487  # v4.0.0
 
       - name: Build app runtime image
         if: steps.scope.outputs.relevant == 'true'
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
           file: docker/Dockerfile
@@ -345,7 +345,7 @@ jobs:
 
       - name: Build worker runtime image
         if: steps.scope.outputs.relevant == 'true'
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
           file: docker/Dockerfile
@@ -411,7 +411,7 @@ jobs:
     # baseDomain expanded, no null ports). No cluster — pure template smoke
     # test. Catches the helm bug class that compile + unit tests cannot.
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install helm + yq
         run: |
           curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
@@ -430,7 +430,7 @@ jobs:
     # analysis starts — see build-and-test.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2  # HEAD^ for the push-event scope diff
 
@@ -470,7 +470,7 @@ jobs:
 
       - name: Set up Docker Buildx
         if: steps.scope.outputs.relevant == 'true'
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
       - name: Expose Actions cache env for sccache
         # Exports ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN so sccache (inside
@@ -478,11 +478,11 @@ jobs:
         # cache API. The Dockerfile receives them as BuildKit secrets — never
         # ARGs — so layer cache keys and image history stay credential-free.
         if: steps.scope.outputs.relevant == 'true'
-        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
+        uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487  # v4.0.0
 
       - name: Build builder image
         if: steps.scope.outputs.relevant == 'true'
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
           file: docker/Dockerfile
@@ -521,7 +521,7 @@ jobs:
 
       - name: Upload clang-tidy log
         if: always() && steps.scope.outputs.relevant == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: clang-tidy-log
           path: clang-tidy.log
@@ -546,7 +546,7 @@ jobs:
     # plain ~2 min wall clock.
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2  # HEAD^ for the push-event scope diff
 
@@ -586,7 +586,7 @@ jobs:
 
       - name: Set up Docker Buildx
         if: steps.scope.outputs.relevant == 'true'
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
       - name: Expose Actions cache env for sccache
         # Exports ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN so sccache (inside
@@ -594,11 +594,11 @@ jobs:
         # cache API. The Dockerfile receives them as BuildKit secrets — never
         # ARGs — so layer cache keys and image history stay credential-free.
         if: steps.scope.outputs.relevant == 'true'
-        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
+        uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487  # v4.0.0
 
       - name: Build builder image
         if: steps.scope.outputs.relevant == 'true'
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
           file: docker/Dockerfile
@@ -699,7 +699,7 @@ jobs:
     # under TSan's worst-case multiplier, but real).
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2  # HEAD^ for the push-event scope diff
 
@@ -739,7 +739,7 @@ jobs:
 
       - name: Set up Docker Buildx
         if: steps.scope.outputs.relevant == 'true'
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
       - name: Expose Actions cache env for sccache
         # Exports ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN so sccache (inside
@@ -747,11 +747,11 @@ jobs:
         # cache API. The Dockerfile receives them as BuildKit secrets — never
         # ARGs — so layer cache keys and image history stay credential-free.
         if: steps.scope.outputs.relevant == 'true'
-        uses: crazy-max/ghaction-github-runtime@3cb05d89e1f492524af3d41a1c98c83bc3025124  # v3.1.0
+        uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487  # v4.0.0
 
       - name: Build builder image
         if: steps.scope.outputs.relevant == 'true'
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
           file: docker/Dockerfile
