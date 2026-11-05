@@ -85,3 +85,7 @@ helm upgrade mi-fitness-api-worker helm/mi-fitness-api-worker \
 ## Лицензия
 
 AGPL-3.0-only, как у исходного моста.
+
+---
+
+**Archived on 2026-11-05.** stopped rollback service; its whole function (Xiaomi cloud client, eight data types, CSV export) was ported into life-os-cpp as the `fitness` module in 1.7.0 ("Mi Fitness sync ported from mi-fitness-api 1.9.2", CHANGELOG) and now runs there with per-user Mi accounts and QR sign-in. Keep the repo read-only until the owner no longer needs the rollback path, then archive.
